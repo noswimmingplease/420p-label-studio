@@ -11,6 +11,9 @@ const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(12);
 const LAUNCH_COOLDOWN: Duration = Duration::from_secs(60);
 static LAST_PORT: AtomicU16 = AtomicU16::new(0);
 static LAST_LAUNCH_ATTEMPT: Mutex<Option<Instant>> = Mutex::new(None);
+// The legacy device interface is shared by status reads and print submission.
+// Do not let a background poll open it while a print job is using it.
+pub(crate) static PRINTER_ACCESS: Mutex<()> = Mutex::new(());
 
 fn call(port: u16, endpoint: &str, fields: &[(&str, &str)], timeout: Duration) -> Result<String, String> {
     if !(41951..=41960).contains(&port) || !matches!(endpoint, "GetPrinters" | "RenderLabel") {
@@ -58,6 +61,15 @@ pub fn discover() -> Result<(u16, bool), String> {
         std::thread::sleep(Duration::from_secs(3).min(deadline.saturating_duration_since(Instant::now())));
     }
     scan(deadline).ok_or_else(|| "The DYMO 420P was not found by DYMO Connect.".into())
+}
+
+/// Keep normal connection discovery authoritative; missing optional details
+/// must not turn an otherwise connected printer into a false disconnect.
+pub fn status() -> Result<crate::sdk::DeviceStatus, String> {
+    let _access = PRINTER_ACCESS.lock().map_err(|_| "Printer access state unavailable.")?;
+    let (_, connected) = discover()?;
+    if !connected { return Ok(crate::sdk::DeviceStatus::disconnected()); }
+    Ok(crate::sdk::device_status().unwrap_or_else(|_| crate::sdk::DeviceStatus::unavailable()))
 }
 
 fn claim_launch(last_attempt: &mut Option<Instant>, now: Instant) -> bool {

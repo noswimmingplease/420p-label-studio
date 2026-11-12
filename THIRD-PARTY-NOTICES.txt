@@ -13,6 +13,12 @@ their own licences. A binary distributor must also retain the applicable
 notices for all transitive dependencies. This file does not grant a licence
 to trademarks or change the licences of the dependencies or application.
 
+The Windows binary release includes a licences directory containing its
+dependency licence texts and notices, including the embedded-font notices.
+licences/index.json identifies the packages and the associated files.
+Retain that directory when redistributing the binary release. Microsoft
+Windows SDK projection components retain their Microsoft SDK licence terms.
+
 The MIT License (MIT)
 
 Copyright (c) 2020 Sanford, L.P.

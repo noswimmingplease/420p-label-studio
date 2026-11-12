@@ -10,15 +10,6 @@ using DymoSDK.Interfaces;
 try
 {
     var request = JsonSerializer.Deserialize<Request>(Console.In.ReadToEnd(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? throw new InvalidOperationException("Missing request");
-    if (request.Action == "versions")
-    {
-        var root = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-        var path = Path.Combine(root, "DYMO", "DYMO Connect", "DYMOConnect.exe");
-        var version = File.Exists(path) ? System.Diagnostics.FileVersionInfo.GetVersionInfo(path).ProductVersion : null;
-        var sdk = typeof(DymoLabel).Assembly.GetName().Version?.ToString();
-        Console.WriteLine(JsonSerializer.Serialize(new { ok = true, dymoConnect = version, sdk }));
-        return;
-    }
     if (request.Action == "fonts")
     {
         var fonts = System.Windows.Media.Fonts.SystemFontFamilies.Select(f => f.Source).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray();
@@ -30,7 +21,23 @@ try
         Console.WriteLine(JsonSerializer.Serialize(new { ok = true, usbPresent = DevicePresence.Is420pPresent() }));
         return;
     }
+    if (request.Action == "parse-device-status")
+    {
+        if (request.StatusBase64 is not { Length: <= 64 }) throw new InvalidOperationException("Supply a bounded synthetic status reply.");
+        Console.WriteLine(JsonSerializer.Serialize(DeviceStatus.Decode(Convert.FromBase64String(request.StatusBase64)), new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+        return;
+    }
+    if (request.Action == "device-status" && !DevicePresence.Is420pPresent())
+    {
+        Console.WriteLine(JsonSerializer.Serialize(DeviceStatus.Disconnected(), new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+        return;
+    }
     DymoSDK.App.Init();
+    if (request.Action == "device-status")
+    {
+        Console.WriteLine(JsonSerializer.Serialize(DeviceStatus.Read(), new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+        return;
+    }
     if (request.Action == "printers")
     {
         var printers = DymoPrinter.Instance.GetPrinters().Where(p => p.Name == "DYMO LabelManager 420P").Select(p => new { p.Name, p.IsConnected }).ToArray();
@@ -263,7 +270,7 @@ catch (Exception e)
     Environment.ExitCode = 1;
 }
 
-internal sealed record Request(string Action, string? Template, string? Text, int Copies = 1, string? Image = null, int Width = 0, bool Bold = false, bool Italic = false, bool Underline = false, string Font = "Segoe UI", string Align = "Center", FeatureObject[]? Objects = null, string? TemplateBase64 = null, bool IncludeDesign = true, LayoutSpec[]? Layout = null);
+internal sealed record Request(string Action, string? Template, string? Text, int Copies = 1, string? Image = null, int Width = 0, bool Bold = false, bool Italic = false, bool Underline = false, string Font = "Segoe UI", string Align = "Center", FeatureObject[]? Objects = null, string? TemplateBase64 = null, bool IncludeDesign = true, LayoutSpec[]? Layout = null, string? StatusBase64 = null);
 
 internal static class DevicePresence
 {

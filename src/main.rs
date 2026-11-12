@@ -3,7 +3,6 @@
 use eframe::egui::{self, Color32, RichText, Vec2};
 mod dymo_service;
 mod sdk;
-mod updates;
 mod app_updates;
 mod toolbar;
 mod features;
@@ -38,7 +37,9 @@ struct LabelApp {
     width_mm: u8,
     copies: u16,
     service_status: String,
-    status_receiver: Option<std::sync::mpsc::Receiver<String>>,
+    status_receiver: Option<std::sync::mpsc::Receiver<Result<sdk::DeviceStatus, String>>>,
+    device_status: Option<sdk::DeviceStatus>,
+    device_status_time: Option<std::time::Instant>,
     template_path: String,
     preview_receiver: Option<std::sync::mpsc::Receiver<Result<PreviewAttempt, String>>>,
     preview_image: Option<egui::TextureHandle>,
@@ -98,8 +99,6 @@ struct LabelApp {
     print_receiver: Option<std::sync::mpsc::Receiver<PrintEvent>>,
     print_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     print_status: String,
-    update_receiver: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
-    update_status: String,
     connected: Option<bool>,
     bold: bool,
     italic: bool,
@@ -120,13 +119,70 @@ struct LabelApp {
 impl Default for LabelApp {
     fn default() -> Self {
         let template_path = built_in_template(9).unwrap_or_default();
-        let mut app = Self { app_update_repository: String::new(), app_update_status: "Configure the project repository to check app releases.".into(), app_update_release: None, app_update_receiver: None, model_picture: None, export_receiver: None, text: String::new(), width_mm: 9, copies: 1, service_status: "Not checked".into(), status_receiver: None, template_path, preview_receiver: None, preview_image: None, highres_design: None, preview_dimensions: None, printable_dimensions: None, printable_origin: None, preview_snapshot: None, preview_objects: None, all_layouts: None, empty_primary_text: None, pending_move: None, preview_paper: Color32::WHITE, design_mode: true, design_image: None, design_image_key: String::new(), design_image_receiver: None, right_click_selection: None, preview_context_target: None, show_rulers: true, metric_units: true, show_about: false, show_preferences: false, show_tips: false, show_layout: false, show_guides: false, fit_requested: false, features: features::Features::default(), layout: layout_tools::LayoutState::default(), guides: guides::Guides::default(), canvas: canvas_layout::CanvasInteraction::default(), known_features: Vec::new(), known_image: false, removed_objects: Vec::new(), object_layouts: Vec::new(), project_path: None, saved_disk_snapshot: None, saved_key: String::new(), pending_document_action: None, data_tools: data_tools::DataTools::default(), prepared_batch: Vec::new(), show_batch: false, batch_selected: 0, batch_preview_receiver: None, batch_preview_key: None, batch_preview_texture: None, batch_status: String::new(), allow_close: false, preview_status: "Generate a preview to see the label.".into(), preview_base_key: None, threshold_image_blank: false, image_path: String::new(), black_and_white: true, threshold: 128, preview_key: None, pending_key: None, print_receiver: None, print_cancel: None, print_status: String::new(), update_receiver: None, update_status: "Not checked".into(), connected: None, bold: false, italic: false, underline: false, font: "Segoe UI".into(), fonts: vec!["Segoe UI".into(), "Arial".into(), "Calibri".into()], fonts_receiver: None, align: "Center".into(), next_status_check: std::time::Instant::now(), file_status: String::new(), observed_key: String::new(), preview_due: None, zoom: 2.0, tray: None, tray_error: None };
+        let mut app = Self { app_update_repository: app_updates::DEFAULT_REPOSITORY.to_owned(), app_update_status: "Check GitHub for the latest app release.".into(), app_update_release: None, app_update_receiver: None, model_picture: None, export_receiver: None, text: String::new(), width_mm: 9, copies: 1, service_status: "Not checked".into(), status_receiver: None, device_status: None, device_status_time: None, template_path, preview_receiver: None, preview_image: None, highres_design: None, preview_dimensions: None, printable_dimensions: None, printable_origin: None, preview_snapshot: None, preview_objects: None, all_layouts: None, empty_primary_text: None, pending_move: None, preview_paper: Color32::WHITE, design_mode: true, design_image: None, design_image_key: String::new(), design_image_receiver: None, right_click_selection: None, preview_context_target: None, show_rulers: true, metric_units: true, show_about: false, show_preferences: false, show_tips: false, show_layout: false, show_guides: false, fit_requested: false, features: features::Features::default(), layout: layout_tools::LayoutState::default(), guides: guides::Guides::default(), canvas: canvas_layout::CanvasInteraction::default(), known_features: Vec::new(), known_image: false, removed_objects: Vec::new(), object_layouts: Vec::new(), project_path: None, saved_disk_snapshot: None, saved_key: String::new(), pending_document_action: None, data_tools: data_tools::DataTools::default(), prepared_batch: Vec::new(), show_batch: false, batch_selected: 0, batch_preview_receiver: None, batch_preview_key: None, batch_preview_texture: None, batch_status: String::new(), allow_close: false, preview_status: "Generate a preview to see the label.".into(), preview_base_key: None, threshold_image_blank: false, image_path: String::new(), black_and_white: true, threshold: 128, preview_key: None, pending_key: None, print_receiver: None, print_cancel: None, print_status: String::new(), connected: None, bold: false, italic: false, underline: false, font: "Segoe UI".into(), fonts: vec!["Segoe UI".into(), "Arial".into(), "Calibri".into()], fonts_receiver: None, align: "Center".into(), next_status_check: std::time::Instant::now(), file_status: String::new(), observed_key: String::new(), preview_due: None, zoom: 2.0, tray: None, tray_error: None };
         app.saved_key = app.document_key();
         app
     }
 }
 
 impl LabelApp {
+    fn start_status_check(&mut self) {
+        if self.status_receiver.is_some() || self.print_receiver.is_some() { return; }
+        let (send, receive) = std::sync::mpsc::channel();
+        self.status_receiver = Some(receive);
+        std::thread::spawn(move || { let _ = send.send(dymo_service::status()); });
+    }
+
+    fn apply_device_status(&mut self, result: Result<sdk::DeviceStatus, String>) {
+        match result {
+            Ok(status) => {
+                self.connected = Some(status.connected);
+                self.service_status = if status.connected { "Connected" } else { "Disconnected" }.into();
+                self.device_status_time = status.available.then(std::time::Instant::now);
+                self.device_status = Some(status);
+            }
+            Err(error) => {
+                self.connected = None;
+                self.service_status = error;
+                self.device_status = None;
+                self.device_status_time = None;
+            }
+        }
+    }
+
+    fn device_status_ui(&self, ui: &mut egui::Ui, expanded: bool) {
+        if self.connected != Some(true) {
+            if expanded { ui.label("Connect the 420P to read battery and cassette details."); }
+            return;
+        }
+        let Some(status) = &self.device_status else { return; };
+        if !status.available {
+            ui.label(status.message.as_deref().unwrap_or("Printer details are unavailable. Try refreshing the connection."));
+            return;
+        }
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Battery");
+            if let Some(percent) = status.battery_percent {
+                ui.add(egui::ProgressBar::new(f32::from(percent) / 100.0).desired_width(90.0).text(format!("{percent}%")));
+            } else { ui.label("Unavailable"); }
+            match status.charging {
+                Some(true) => { ui.colored_label(Color32::from_rgb(83, 210, 134), "Charging"); }
+                Some(false) => { ui.label("Not charging"); }
+                None => { ui.label("Charging status unavailable"); }
+            }
+            if let Some(width) = status.tape_width_mm { ui.label(format!("Detected tape: {}", tape_width_label(width))); }
+        });
+        for issue in &status.issues { ui.colored_label(Color32::from_rgb(239, 189, 85), issue); }
+        if let Some(width) = status.tape_width_mm.filter(|width| *width != self.width_mm) {
+            ui.colored_label(Color32::from_rgb(239, 189, 85), format!("Detected {width} mm tape; {} mm is selected for this label.", self.width_mm));
+        }
+        if let Some(time) = self.device_status_time {
+            if expanded || time.elapsed() > std::time::Duration::from_secs(60) {
+                ui.small(format!("Last status read {} seconds ago.", time.elapsed().as_secs()));
+            }
+        }
+    }
+
     fn start_app_update_check(&mut self) {
         if self.app_update_receiver.is_some() { return; }
         let repository = match app_updates::normalise_repository(&self.app_update_repository) {
@@ -350,10 +406,6 @@ impl LabelApp {
                 self.show_preferences = true;
                 if !self.app_update_repository.trim().is_empty() { self.start_app_update_check(); }
             }
-            Action::CheckUpdates => if self.update_receiver.is_none() {
-                let (send, receive) = std::sync::mpsc::channel(); self.update_receiver = Some(receive); self.update_status = "Checking DYMO release notes…".into();
-                std::thread::spawn(move || { let _ = send.send(updates::check()); });
-            },
             Action::Undo | Action::Redo | Action::Cut | Action::Copy | Action::Paste | Action::SelectAll => self.toolbar_text_action(action, ctx),
         }
     }
@@ -786,13 +838,6 @@ impl LabelApp {
                     Err(std::sync::mpsc::TryRecvError::Empty) => ui.ctx().request_repaint_after(std::time::Duration::from_millis(250)),
                 }
             }
-            if let Some(receiver) = &self.update_receiver {
-                match receiver.try_recv() {
-                    Ok(Ok(status)) | Ok(Err(status)) => { self.update_status = status; self.update_receiver = None; }
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => { self.update_status = "Update check stopped unexpectedly.".into(); self.update_receiver = None; }
-                    Err(std::sync::mpsc::TryRecvError::Empty) => ui.ctx().request_repaint_after(std::time::Duration::from_millis(500)),
-                }
-            }
             if let Some(receiver) = &self.app_update_receiver {
                 match receiver.try_recv() {
                     Ok((repository, result)) => {
@@ -913,25 +958,15 @@ impl LabelApp {
             }
             if let Some(receiver) = &self.status_receiver {
                 match receiver.try_recv() {
-                    Ok(message) => { self.connected = match message.as_str() { "Connected" => Some(true), "Disconnected" => Some(false), _ => None }; self.service_status = message; self.status_receiver = None; self.next_status_check = std::time::Instant::now() + std::time::Duration::from_secs(15); }
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => { self.connected = None; self.service_status = "Printer check failed.".into(); self.status_receiver = None; self.next_status_check = std::time::Instant::now() + std::time::Duration::from_secs(15); }
+                    Ok(result) => { self.apply_device_status(result); self.status_receiver = None; self.next_status_check = std::time::Instant::now() + std::time::Duration::from_secs(15); }
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => { self.apply_device_status(Err("Printer check failed.".into())); self.status_receiver = None; self.next_status_check = std::time::Instant::now() + std::time::Duration::from_secs(15); }
                     Err(std::sync::mpsc::TryRecvError::Empty) => ui.ctx().request_repaint_after(std::time::Duration::from_millis(300)),
                 }
             }
-            if self.status_receiver.is_none() && std::time::Instant::now() >= self.next_status_check {
-                let (send, receive) = std::sync::mpsc::channel();
-                self.status_receiver = Some(receive);
-                self.next_status_check = std::time::Instant::now() + std::time::Duration::from_secs(15);
-                std::thread::spawn(move || {
-                    let message = match dymo_service::discover() {
-                        Ok((_, true)) => "Connected".to_owned(),
-                        Ok((_, false)) => "Disconnected".to_owned(),
-                        Err(error) => error,
-                    };
-                    let _ = send.send(message);
-                });
+            if self.status_receiver.is_none() && self.print_receiver.is_none() && std::time::Instant::now() >= self.next_status_check {
+                self.start_status_check();
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
-            } else if self.status_receiver.is_none() {
+            } else if self.status_receiver.is_none() && self.print_receiver.is_none() {
                 ui.ctx().request_repaint_after(self.next_status_check.saturating_duration_since(std::time::Instant::now()));
             }
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -945,20 +980,10 @@ impl LabelApp {
                 let colour = match self.connected { Some(true) => Color32::from_rgb(54, 188, 106), Some(false) => Color32::from_rgb(224, 76, 76), None => Color32::from_gray(140) };
                 let (circle, _) = ui.allocate_exact_size(Vec2::splat(12.0), egui::Sense::hover());
                 ui.painter().circle_filled(circle.center(), 5.0, colour);
-                ui.label(&self.service_status);
-                if ui.add_enabled(self.status_receiver.is_none(), egui::Button::new("Refresh")).on_hover_text("Check the printer connection").clicked() {
-                    let (send, receive) = std::sync::mpsc::channel();
-                    self.status_receiver = Some(receive);
-                    self.next_status_check = std::time::Instant::now() + std::time::Duration::from_secs(15);
+                ui.label(&self.service_status).on_hover_ui(|ui| self.device_status_ui(ui, true));
+                if ui.add_enabled(self.status_receiver.is_none() && self.print_receiver.is_none(), egui::Button::new("Refresh")).on_hover_text("Read the printer connection, battery and cassette status").clicked() {
                     self.service_status = "Checking…".into();
-                    std::thread::spawn(move || {
-                        let message = match dymo_service::discover() {
-                            Ok((_, true)) => "Connected".to_owned(),
-                            Ok((_, false)) => "Disconnected".to_owned(),
-                            Err(error) => error,
-                        };
-                        let _ = send.send(message);
-                    });
+                    self.start_status_check();
                 }
             });
             ui.add_space(6.0);
@@ -979,6 +1004,7 @@ impl LabelApp {
                 ui.label(&self.file_status);
             });
             if let Some(error) = &self.tray_error { ui.label(format!("Notification area unavailable: {error}")); }
+            self.device_status_ui(ui, false);
             ui.add_space(14.0);
             let sidebar_width = (ui.available_width() * 0.29).clamp(225.0, 300.0);
             ui.horizontal_top(|ui| {
@@ -1284,29 +1310,18 @@ impl LabelApp {
             ui.separator();
             ui.collapsing("Updates", |ui| {
                 self.app_updates_ui(ui);
-                ui.separator();
-                ui.strong("DYMO Connect updates");
-                if ui.add_enabled(self.update_receiver.is_none(), egui::Button::new("Check DYMO software version")).clicked() {
-                    let (send, receive) = std::sync::mpsc::channel();
-                    self.update_receiver = Some(receive);
-                    self.update_status = "Checking DYMO release notes…".into();
-                    std::thread::spawn(move || { let _ = send.send(updates::check()); });
-                }
-                ui.label(&self.update_status);
-                ui.hyperlink_to("Open official DYMO downloads", "https://www.dymo.co.uk/support?cfid=user-guide");
-                ui.label("Checks do not install or change software.");
             });
             });
             });
             if self.show_about {
                 egui::Window::new("About LabelManager 420P").open(&mut self.show_about).show(ui.ctx(), |ui| {
-                    ui.strong("LabelManager 420P prototype");
+                    ui.strong("LabelManager 420P");
                     ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                    ui.small("Copyright (c) 2026 dymo-420p-rust contributors.");
                     ui.label("Uses the locally installed DYMO Connect software and SDK.");
                 });
             }
             if self.show_preferences {
-                let mut check_updates = false;
                 let mut settings_open = self.show_preferences;
                 if self.model_picture.is_none() {
                     if let Ok(image) = image::load_from_memory(include_bytes!("../assets/printer-420p-v6.png")) {
@@ -1327,6 +1342,7 @@ impl LabelApp {
                             ui.label("USB label maker · manual cutter");
                             ui.label("D1 tape: 6, 9, 12 or 19 mm");
                             ui.label(&self.service_status);
+                            self.device_status_ui(ui, true);
                         });
                     });
                     ui.separator();
@@ -1338,13 +1354,8 @@ impl LabelApp {
                     ui.horizontal(|ui| { ui.label("Units"); ui.selectable_value(&mut self.metric_units, true, "Metric"); ui.selectable_value(&mut self.metric_units, false, "Inches"); });
                     ui.separator();
                     self.app_updates_ui(ui);
-                    ui.separator();
-                    ui.strong("DYMO Connect updates");
-                    if ui.add_enabled(self.update_receiver.is_none(), egui::Button::new("Check DYMO software updates")).clicked() { check_updates = true; }
-                    ui.label(&self.update_status);
                 });
                 self.show_preferences = settings_open;
-                if check_updates { self.toolbar_action(toolbar::Action::CheckUpdates, ui.ctx()); }
             }
             if self.show_tips {
                 egui::Window::new("Quick tips").open(&mut self.show_tips).show(ui.ctx(), |ui| {
@@ -1606,6 +1617,44 @@ fn create_tray(ctx: &egui::Context) -> Result<tray_icon::TrayIcon, String> {
 #[cfg(test)]
 mod project_tests {
     use super::*;
+    #[test]
+    fn printer_status_updates_do_not_change_the_label_or_retain_stale_details() {
+        let mut app = LabelApp { text: "Keep this label".into(), ..Default::default() };
+        let document = app.document_key();
+        let connected = sdk::DeviceStatus { connected: true, available: true, battery_percent: Some(75), charging: Some(true), tape_width_mm: Some(9), issues: vec![], message: None };
+        app.apply_device_status(Ok(connected.clone()));
+        assert_eq!(app.service_status, "Connected");
+        assert!(app.device_status_time.is_some());
+        for status in [sdk::DeviceStatus::unavailable(), sdk::DeviceStatus::disconnected()] {
+            app.apply_device_status(Ok(status.clone()));
+            assert_eq!(app.connected, Some(status.connected));
+            assert_eq!(app.device_status.as_ref().unwrap().battery_percent, None);
+            assert!(app.device_status_time.is_none());
+            assert_eq!(app.document_key(), document);
+        }
+        app.apply_device_status(Ok(connected));
+        app.apply_device_status(Err("Synthetic status failure".into()));
+        assert_eq!(app.connected, None);
+        assert!(app.device_status.is_none() && app.device_status_time.is_none());
+        assert_eq!(app.document_key(), document);
+    }
+
+    #[test]
+    fn printer_details_render_in_compact_and_settings_views() {
+        let mut app = LabelApp::default();
+        for status in [
+            sdk::DeviceStatus { connected: true, available: true, battery_percent: Some(75), charging: Some(true), tape_width_mm: Some(12), issues: vec!["Synthetic printer error".into()], message: None },
+            sdk::DeviceStatus::unavailable(), sdk::DeviceStatus::disconnected(),
+        ] {
+            app.apply_device_status(Ok(status));
+            egui::__run_test_ui(|ui| {
+                ui.set_width(360.0);
+                app.device_status_ui(ui, false);
+                app.device_status_ui(ui, true);
+            });
+        }
+    }
+
     #[test]
     fn app_update_results_follow_the_current_repository_without_changing_the_label() {
         for current_repository in ["example/label-app", "example/other-app"] {

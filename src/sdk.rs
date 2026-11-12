@@ -2,6 +2,54 @@ use std::{io::Write, os::windows::process::CommandExt, path::PathBuf, process::{
 use base64::Engine;
 use wait_timeout::ChildExt;
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeviceStatus {
+    pub connected: bool,
+    pub available: bool,
+    pub battery_percent: Option<u8>,
+    pub charging: Option<bool>,
+    pub tape_width_mm: Option<u8>,
+    pub issues: Vec<String>,
+    pub message: Option<String>,
+}
+
+impl DeviceStatus {
+    pub fn disconnected() -> Self {
+        Self { connected: false, available: false, battery_percent: None, charging: None, tape_width_mm: None, issues: Vec::new(), message: None }
+    }
+
+    pub fn unavailable() -> Self {
+        Self { connected: true, message: Some("Printer details are unavailable. Try refreshing the connection.".into()), ..Self::disconnected() }
+    }
+
+    fn parse(value: &serde_json::Value) -> Result<Self, String> {
+        let connected = value["connected"].as_bool().ok_or("Printer connection missing from status response.")?;
+        let available = value["statusAvailable"].as_bool().ok_or("Printer status availability missing.")?;
+        if !connected { return Ok(Self::disconnected()); }
+        let message = value["message"].as_str().map(|s| s.chars().take(500).collect());
+        if !available { return Ok(Self { message, ..Self::unavailable() }); }
+        let battery_percent = value["batteryPercent"].as_u64().filter(|n| *n <= 100).map(|n| n as u8);
+        let tape_width_mm = value["tapeWidthMm"].as_u64().filter(|n| [6, 9, 12, 19].contains(n)).map(|n| n as u8);
+        let issues = value["issues"].as_array().ok_or("Printer issues missing from status response.")?
+            .iter().take(10).filter_map(|v| v.as_str()).map(|s| s.chars().take(500).collect()).collect();
+        Ok(Self { connected, available, battery_percent, charging: value["charging"].as_bool(), tape_width_mm, issues, message })
+    }
+}
+
+pub fn device_status() -> Result<DeviceStatus, String> {
+    let bridge = std::env::current_exe().map_err(|e| e.to_string())?.parent().ok_or("Missing application folder")?.join("sdk").join("DymoBridge.exe");
+    read_device_status(bridge, serde_json::json!({"action":"device-status"}))
+}
+
+fn read_device_status(bridge: PathBuf, request: serde_json::Value) -> Result<DeviceStatus, String> {
+    let mut child = Command::new(bridge).creation_flags(0x08000000).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("Cannot start DYMO status reader: {e}"))?;
+    child.stdin.take().ok_or("Cannot open SDK input")?.write_all(request.to_string().as_bytes()).map_err(|e| e.to_string())?;
+    let output = wait_child(child, std::time::Duration::from_secs(15))?;
+    if !output.status.success() { return Err("The DYMO SDK could not read printer details.".into()); }
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+    DeviceStatus::parse(&value)
+}
+
 pub struct Preview {
     pub image: image::RgbaImage,
     pub design_image: Option<image::RgbaImage>,
@@ -143,6 +191,7 @@ fn preview_snapshot_with_bridge(bridge: PathBuf, snapshot: std::sync::Arc<PrintS
 }
 
 pub fn print_snapshot(snapshot: &PrintSnapshot, text: String, copies: u16, objects: Vec<serde_json::Value>) -> Result<(), String> {
+    let _access = crate::dymo_service::PRINTER_ACCESS.lock().map_err(|_| "Printer access state unavailable.")?;
     match crate::dymo_service::discover() {
         Ok((_, true)) => {},
         Ok((_, false)) => return Err("The 420P is disconnected according to DYMO Connect.".into()),
@@ -219,6 +268,67 @@ pub(crate) fn prepare_image(path: &str, monochrome: bool, cutoff: u8) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn device_status_clears_stale_details_and_rejects_invalid_values() {
+        let mut value = serde_json::json!({"connected":true,"statusAvailable":true,"batteryPercent":72,"charging":true,"tapeWidthMm":9,"issues":[]});
+        assert_eq!(DeviceStatus::parse(&value).unwrap().battery_percent, Some(72));
+        for invalid in [serde_json::json!(101), serde_json::json!(-1), serde_json::json!("72"), serde_json::json!(null)] {
+            value["batteryPercent"] = invalid;
+            assert_eq!(DeviceStatus::parse(&value).unwrap().battery_percent, None);
+        }
+        value["tapeWidthMm"] = serde_json::json!(24);
+        assert_eq!(DeviceStatus::parse(&value).unwrap().tape_width_mm, None);
+        value["connected"] = serde_json::json!(false);
+        assert_eq!(DeviceStatus::parse(&value).unwrap(), DeviceStatus::disconnected());
+        value["connected"] = serde_json::json!(true);
+        value["statusAvailable"] = serde_json::json!(false);
+        let unavailable = DeviceStatus::parse(&value).unwrap();
+        assert!(unavailable.connected && !unavailable.available);
+        assert_eq!((unavailable.battery_percent, unavailable.charging, unavailable.tape_width_mm), (None, None, None));
+        assert!(unavailable.issues.is_empty());
+        assert!(DeviceStatus::parse(&serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn sdk_decodes_synthetic_420p_status_when_bridge_supplied() {
+        let Ok(bridge) = std::env::var("DYMO_TEST_BRIDGE") else { return; };
+        let decode = |bytes: &[u8]| read_device_status(PathBuf::from(&bridge), serde_json::json!({"action":"parse-device-status", "statusBase64":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+        for (encoded_width, width) in [(1, 6), (2, 9), (3, 12), (4, 19)] {
+            let status = decode(&[0x40, encoded_width, 0x10, 75, 0, 0, 0, 0]);
+            assert!(status.connected && status.available);
+            assert_eq!((status.battery_percent, status.charging, status.tape_width_mm), (Some(75), Some(true), Some(width)));
+            assert!(status.issues.is_empty());
+        }
+        for percent in [0, 100] {
+            let status = decode(&[0x40, 2, 0, percent, 0, 0, 0, 0]);
+            assert_eq!((status.battery_percent, status.charging), (Some(percent), Some(false)));
+        }
+        let invalid = decode(&[0x40, 6, 0, 255, 0, 0, 0, 0]);
+        assert_eq!((invalid.battery_percent, invalid.tape_width_mm), (None, None));
+        for bytes in [vec![], vec![0; 7], vec![0; 9]] {
+            let incomplete = decode(&bytes);
+            assert!(incomplete.connected && !incomplete.available);
+            assert_eq!((incomplete.battery_percent, incomplete.charging, incomplete.tape_width_mm), (None, None, None));
+        }
+        let missing = decode(&[0, 2, 0, 75, 0, 0, 0, 0]);
+        assert_eq!(missing.tape_width_mm, None);
+        assert!(missing.issues.iter().any(|s| s.contains("No cassette")));
+        for (flags, message) in [(0x21, "Battery power error"), (0x22, "No battery"), (0x23, "USB charging current"), (0x20, "charging error")] {
+            let status = decode(&[0x40, 2, flags, 75, 0, 0, 0, 0]);
+            assert_eq!(status.charging, None);
+            assert!(status.issues.iter().any(|s| s.contains(message)), "{status:?}");
+            if flags == 0x22 { assert_eq!(status.battery_percent, None); }
+        }
+        let low = decode(&[0x40, 2, 0x80, 0, 0, 0, 0, 0]);
+        assert!(low.issues.iter().any(|s| s.contains("too low to print")));
+        let missing_and_low = decode(&[0, 2, 0x80, 0, 0, 0, 0, 0]);
+        assert_eq!(missing_and_low.tape_width_mm, None);
+        assert!(missing_and_low.issues.iter().any(|s| s.contains("too low to print")));
+        assert!(missing_and_low.issues.iter().any(|s| s.contains("No cassette")));
+        let error = decode(&[0x44, 2, 0, 75, 0, 0, 0, 0]);
+        assert!(error.issues.iter().any(|s| s.contains("Printer error")));
+    }
+
     fn powershell(command: &str) -> std::process::Child {
         let root = std::env::var_os("SystemRoot").unwrap();
         Command::new(PathBuf::from(root).join("System32/WindowsPowerShell/v1.0/powershell.exe"))

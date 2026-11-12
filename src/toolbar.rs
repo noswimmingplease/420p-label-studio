@@ -52,7 +52,6 @@ pub enum Action {
     ToggleRulers,
     UnitsMetric,
     UnitsInches,
-    CheckUpdates,
     CheckAppUpdates,
     HelpContents,
     UserGuides,
@@ -193,7 +192,6 @@ pub fn menu_bar(ui: &mut egui::Ui, state: &ToolbarState) -> Option<Action> {
             command(ui, "User guides", true, "", Action::UserGuides, &mut action);
             command(ui, "Buy labels", true, "", Action::BuyLabels, &mut action);
             command(ui, "Check app updates", true, "", Action::CheckAppUpdates, &mut action);
-            command(ui, "Check DYMO Connect updates", true, "", Action::CheckUpdates, &mut action);
             command(ui, "Register", true, "", Action::Register, &mut action);
             command(ui, "About", state.can_show_about, "About information is not available yet.", Action::About, &mut action);
         });

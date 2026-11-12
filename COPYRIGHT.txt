@@ -1,0 +1,18 @@
+Language: en-GB
+
+Copyright (c) 2026 dymo-420p-rust contributors.
+All rights reserved for the application's original code and artwork unless
+a separate licence expressly provides otherwise.
+
+Third-party components retain their own copyright and licence terms. See
+THIRD-PARTY-NOTICES.txt and the licences directory in the Windows release.
+
+The Windows release includes unmodified Microsoft.Windows.SDK.NET.dll and
+WinRT.Runtime.dll from Microsoft.Windows.SDK.NET.Ref. Before installing,
+using or redistributing these Microsoft components, you must read and agree
+to the included Microsoft Windows SDK licence terms in
+licences/nuget/Microsoft.Windows.SDK.NET.Ref-10.0.19041.57/sdk_license.rtf.
+If you do not agree, do not install, use or redistribute those components.
+Distributors must retain the Microsoft terms and require their recipients
+to agree to terms protecting these components at least as much as those
+Microsoft terms. No rights to Microsoft or DYMO trademarks are granted here.

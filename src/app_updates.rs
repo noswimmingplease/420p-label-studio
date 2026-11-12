@@ -4,6 +4,7 @@ use std::{fs, io::Read, os::windows::process::CommandExt, path::PathBuf, process
 const MAX_RESPONSE_BYTES: usize = 1_048_576;
 const MAX_NOTES_CHARS: usize = 8_000;
 const MAX_PREFERENCES_BYTES: u64 = 4_096;
+pub const DEFAULT_REPOSITORY: &str = "noswimmingplease/dymo-420p-rust";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Release {
@@ -38,7 +39,7 @@ pub fn load_repository() -> Result<String, String> {
 fn read_repository(path: &std::path::Path) -> Result<String, String> {
     let file = match fs::File::open(path) {
         Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(DEFAULT_REPOSITORY.to_owned()),
         Err(error) => return Err(format!("Cannot read app update preferences: {error}")),
     };
     let mut bytes = Vec::new();
@@ -124,6 +125,15 @@ fn version_parts(version: &str) -> Option<[u32; 4]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn new_install_uses_project_repository_and_preserves_explicit_preferences() {
+        let path = std::env::temp_dir().join(format!("dymo-update-default-{}-{}.json", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        assert_eq!(read_repository(&path).unwrap(), DEFAULT_REPOSITORY);
+        for repository in ["", "example/another-app"] {
+            fs::write(&path, serde_json::to_vec(&serde_json::json!({"version":1,"repository":repository})).unwrap()).unwrap();
+            assert_eq!(read_repository(&path).unwrap(), repository);
+        }
+        fs::remove_file(path).unwrap();
+    }
     fn response(tag: &str, url: &str) -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({"draft": false, "prerelease": false, "tag_name": tag, "html_url": url, "body": "Synthetic release notes."})).unwrap()
     }

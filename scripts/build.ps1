@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 # Language: en-GB
 [CmdletBinding()]
-param([switch]$SkipTests)
+param([switch]$SkipTests, [switch]$PublicRelease)
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
@@ -19,7 +19,35 @@ foreach ($tool in @('dotnet', 'cargo', 'link.exe', 'rc.exe')) {
 Push-Location $projectRoot
 $previousEnvironment = @{}
 try {
-    & dotnet build 'sdk-bridge/DymoBridge.csproj' --configuration Release --nologo
+    $bridgeArguments = @('build', 'sdk-bridge/DymoBridge.csproj', '--configuration', 'Release', '--nologo')
+    if ($PublicRelease) {
+        if ($SkipTests) { throw 'Public release builds require the complete test run.' }
+        $bridgeOutput = Join-Path $fixtureDirectory 'public-bridge'
+        $distribution = Join-Path $projectRoot 'dist/DYMO420P-public'
+        foreach ($directory in @($bridgeOutput, $distribution)) {
+            if ((Test-Path -LiteralPath $directory) -and @(Get-ChildItem -LiteralPath $directory -Force).Count -gt 0) {
+                throw 'Public release staging must be empty. Inspect and remove the previous generated public-bridge and DYMO420P-public folders before rebuilding.'
+            }
+        }
+        $bridgeArguments += @('--runtime', 'win-x64', '--output', $bridgeOutput, '-p:DebugType=None', '-p:DebugSymbols=false', '-p:ContinuousIntegrationBuild=true', "-p:PathMap=$projectRoot=/_/source/dymo-420p")
+        foreach ($name in @('CARGO_ENCODED_RUSTFLAGS', 'RUSTFLAGS')) {
+            $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+        }
+        $flags = @('-C', 'debuginfo=0', '-C', 'strip=symbols', '-C', 'link-arg=/PDBALTPATH:dymo-420p.pdb')
+        $paths = @{
+            $projectRoot = '/_/source/dymo-420p'
+        }
+        foreach ($name in @('CARGO_HOME', 'RUSTUP_HOME', 'CARGO_TARGET_DIR', 'USERPROFILE')) {
+            $value = [Environment]::GetEnvironmentVariable($name, 'Process')
+            if ($value) { $paths[[IO.Path]::GetFullPath($value)] = '/_/' + $name.ToLowerInvariant() }
+        }
+        foreach ($path in $paths.Keys) {
+            foreach ($form in @($path, $path.Replace('\', '/')) | Select-Object -Unique) { $flags += "--remap-path-prefix=$form=$($paths[$path])" }
+        }
+        $env:CARGO_ENCODED_RUSTFLAGS = $flags -join [char]31
+        $env:RUSTFLAGS = $null
+    }
+    & dotnet @bridgeArguments
     if ($LASTEXITCODE -ne 0) { throw 'SDK bridge build failed.' }
 
     if (-not $SkipTests) {
@@ -55,8 +83,21 @@ try {
     $metadata = ($metadataText -join "`n") | ConvertFrom-Json
     New-Item -ItemType Directory -Path (Join-Path $distribution 'sdk') -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $metadata.target_directory 'release/dymo-420p.exe') -Destination $distribution
-    Copy-Item -Path (Join-Path $bridgeOutput '*') -Destination (Join-Path $distribution 'sdk') -Recurse -Force
-    Copy-Item -LiteralPath 'README.md', 'THIRD-PARTY-NOTICES.txt' -Destination $distribution
+    if ($PublicRelease) {
+        # Copy only runtime artefacts from this clean, separate bridge output.
+        # PDBs, build logs, profiles and application preferences are excluded.
+        $extensions = @('.exe', '.dll', '.json', '.xml', '.dymo')
+        foreach ($file in Get-ChildItem -LiteralPath $bridgeOutput -File -Recurse) {
+            if ($file.Extension -notin $extensions) { continue }
+            $relative = [IO.Path]::GetRelativePath($bridgeOutput, $file.FullName)
+            $destination = Join-Path (Join-Path $distribution 'sdk') $relative
+            New-Item -ItemType Directory -Path (Split-Path $destination) -Force | Out-Null
+            Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
+        }
+    } else {
+        Copy-Item -Path (Join-Path $bridgeOutput '*') -Destination (Join-Path $distribution 'sdk') -Recurse -Force
+    }
+    Copy-Item -LiteralPath 'README.md', 'THIRD-PARTY-NOTICES.txt', 'COPYRIGHT.txt' -Destination $distribution
     Write-Host "Build ready at $distribution"
     Write-Host 'This script does not install the app, submit print jobs or upload files.'
 } finally {
