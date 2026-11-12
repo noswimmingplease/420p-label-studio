@@ -1,0 +1,15 @@
+/target*/
+/dist/
+/.local-test-fixtures/
+/sdk-bridge/bin/
+/sdk-bridge/obj/
+/.vs/
+/.vscode/
+/.idea/
+/.env*
+*.user
+*.suo
+*.pdb
+*.log
+*.420p
+app-updates.json

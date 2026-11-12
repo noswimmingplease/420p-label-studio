@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<DesktopLabel Version="1">
+  <DYMOLabel Version="4">
+    <Description>DYMO Label</Description>
+    <Orientation>Landscape</Orientation>
+    <LabelName>19X7-TAPE BLACK/RED</LabelName>
+    <InitialLength>1.57</InitialLength>
+    <BorderStyle>SolidLine</BorderStyle>
+    <DYMORect>
+      <DYMOPoint>
+        <X>0.41666666</X>
+        <Y>0.08333333</Y>
+      </DYMOPoint>
+      <Size>
+        <Width>0.73666674</Width>
+        <Height>0.58888889</Height>
+      </Size>
+    </DYMORect>
+    <BorderColor>
+      <SolidColorBrush>
+        <Color A="1" R="0.13725491" G="0.12156863" B="0.1254902">
+        </Color>
+      </SolidColorBrush>
+    </BorderColor>
+    <BorderThickness>1</BorderThickness>
+    <Show_Border>False</Show_Border>
+    <HasFixedLength>False</HasFixedLength>
+    <FixedLengthValue>0</FixedLengthValue>
+    <ContinuousLayoutManager>
+      <RotationBehavior>ClearObjects</RotationBehavior>
+      <LabelObjects />
+    </ContinuousLayoutManager>
+  </DYMOLabel>
+  <LabelApplication>Blank</LabelApplication>
+  <DataTable>
+    <Columns>
+    </Columns>
+    <Rows>
+    </Rows>
+  </DataTable>
+</DesktopLabel>

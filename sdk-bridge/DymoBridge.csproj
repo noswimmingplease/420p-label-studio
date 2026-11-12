@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="DYMO.Connect.SDK" Version="1.6.0" />
+    <PackageReference Include="DYMO.LabelAPI.Windows" Version="1.6.0" />
+    <PackageReference Include="DYMO.LabelAPI.Windows.NativeAssets" Version="1.6.0.1" />
+    <PackageReference Include="DYMO.CrossPlatform.Common.Windows" Version="1.6.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="default-text.xml" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="default-image.xml" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="templates\*.dymo" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
