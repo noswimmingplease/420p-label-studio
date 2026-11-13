@@ -33,7 +33,7 @@ try {
         foreach ($name in @('CARGO_ENCODED_RUSTFLAGS', 'RUSTFLAGS')) {
             $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
         }
-        $flags = @('-C', 'debuginfo=0', '-C', 'strip=symbols', '-C', 'link-arg=/PDBALTPATH:dymo-420p.pdb')
+        $flags = @('-C', 'debuginfo=0', '-C', 'strip=symbols', '-C', 'link-arg=/PDBALTPATH:label-studio-420p.pdb')
         $paths = @{
             $projectRoot = '/_/source/dymo-420p'
         }
@@ -82,7 +82,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the Cargo target directory.' }
     $metadata = ($metadataText -join "`n") | ConvertFrom-Json
     New-Item -ItemType Directory -Path (Join-Path $distribution 'sdk') -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $metadata.target_directory 'release/dymo-420p.exe') -Destination $distribution
+    Copy-Item -LiteralPath (Join-Path $metadata.target_directory 'release/label-studio-420p.exe') -Destination $distribution
     if ($PublicRelease) {
         # Copy only runtime artefacts from this clean, separate bridge output.
         # PDBs, build logs, profiles and application preferences are excluded.

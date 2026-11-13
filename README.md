@@ -2,9 +2,9 @@
 lang: en-GB
 ---
 
-# LabelManager 420P
+# 420P Label Studio
 
-A Windows desktop label editor for the DYMO LabelManager 420P. The interface is written in Rust and egui; a local .NET bridge uses the DYMO SDK for previews and printing. This is an independent project.
+A Windows desktop label editor dedicated to the DYMO LabelManager 420P. The interface is written in Rust and egui; a local .NET bridge uses the DYMO SDK for previews and printing. This is an independent project.
 
 ## Features
 
@@ -19,7 +19,7 @@ Print jobs use the same frozen template, image and captured object values as the
 
 ## Run the Windows release
 
-Extract the complete release ZIP to a folder and run `dymo-420p.exe`. Keep the `sdk` directory beside it. The app requires 64-bit Windows 10 or later, the x64 .NET 10 Desktop Runtime, and DYMO Connect with the 420P driver installed. Read `COPYRIGHT.txt` and the bundled third-party terms before using or redistributing the release; agreement to the included Microsoft component terms is required. The release is unsigned, so Windows may show an unknown-publisher prompt. Existing project files and local preferences are stored separately from the application folder.
+Extract the complete release ZIP to a folder and run `label-studio-420p.exe`. Keep the `sdk` directory beside it. The app requires 64-bit Windows 10 or later, the x64 .NET 10 Desktop Runtime, and DYMO Connect with the 420P driver installed. Read `COPYRIGHT.txt` and the bundled third-party terms before using or redistributing the release; agreement to the included Microsoft component terms is required. The release is unsigned, so Windows may show an unknown-publisher prompt. Existing project files and local preferences are stored separately from the application folder.
 
 ## Build and test
 
@@ -35,7 +35,7 @@ The script restores the pinned dependencies, builds the bridge, supplies synthet
 
 `-PublicRelease` requires the full tests, remaps local compiler paths, disables debug symbols and stages the x64 runtime files in `dist/DYMO420P-public`. Its `public-bridge` test output and public distribution staging folders must be empty before the build. Binary publication also requires the applicable transitive dependency and embedded-font licence texts/notices, and an audit of the exact archive and metadata. The build script does not publish a release.
 
-The `sdk` directory must remain beside `dymo-420p.exe`. Local preferences, contacts, projects, diagnostics, package caches and build outputs are not repository content.
+The `sdk` directory must remain beside `label-studio-420p.exe`. Local preferences, contacts, projects, diagnostics, package caches and build outputs are not repository content.
 
 ## Updates
 

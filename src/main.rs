@@ -4,6 +4,7 @@ use eframe::egui::{self, Color32, RichText, Vec2};
 mod dymo_service;
 mod sdk;
 mod app_updates;
+mod branding;
 mod toolbar;
 mod features;
 mod project_io;
@@ -975,7 +976,7 @@ impl LabelApp {
             if let Some(action) = toolbar::menu_bar(ui, &toolbar_state) { self.toolbar_action(action, ui.ctx()); }
             ui.add_space(8.0);
             ui.horizontal_wrapped(|ui| {
-                ui.heading(RichText::new("LabelManager 420P").size(24.0).strong());
+                ui.heading(RichText::new(branding::APP_NAME).size(24.0).strong());
                 ui.add_space(16.0);
                 let colour = match self.connected { Some(true) => Color32::from_rgb(54, 188, 106), Some(false) => Color32::from_rgb(224, 76, 76), None => Color32::from_gray(140) };
                 let (circle, _) = ui.allocate_exact_size(Vec2::splat(12.0), egui::Sense::hover());
@@ -1314,8 +1315,8 @@ impl LabelApp {
             });
             });
             if self.show_about {
-                egui::Window::new("About LabelManager 420P").open(&mut self.show_about).show(ui.ctx(), |ui| {
-                    ui.strong("LabelManager 420P");
+                egui::Window::new(format!("About {}", branding::APP_NAME)).open(&mut self.show_about).show(ui.ctx(), |ui| {
+                    ui.strong(branding::APP_NAME);
                     ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
                     ui.small("Copyright (c) 2026 dymo-420p-rust contributors.");
                     ui.label("Uses the locally installed DYMO Connect software and SDK.");
@@ -1611,7 +1612,7 @@ fn create_tray(ctx: &egui::Context) -> Result<tray_icon::TrayIcon, String> {
             context.request_repaint();
         } else if event.id == quit_id { context.send_viewport_cmd(egui::ViewportCommand::Close); context.request_repaint(); }
     }));
-    TrayIconBuilder::new().with_icon(icon).with_menu(Box::new(menu)).with_tooltip("DYMO LabelManager 420P").build().map_err(|e| e.to_string())
+    TrayIconBuilder::new().with_icon(icon).with_menu(Box::new(menu)).with_tooltip(branding::APP_NAME).build().map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -1939,7 +1940,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "LabelManager 420P",
+        branding::APP_NAME,
         options,
         Box::new(|cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
