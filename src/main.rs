@@ -4,6 +4,8 @@ use eframe::egui::{self, Color32, RichText, Vec2};
 mod dymo_service;
 mod sdk;
 mod app_updates;
+mod update_package;
+mod updater;
 mod branding;
 mod toolbar;
 mod features;
@@ -17,7 +19,7 @@ mod guides;
 #[allow(dead_code)]
 mod monochrome;
 
-enum PendingDocumentAction { New, Open(std::path::PathBuf), Exit }
+enum PendingDocumentAction { New, Open(std::path::PathBuf), Exit, InstallUpdate }
 enum PrintEvent { Single(Result<(), String>), Progress(batch::Progress), BatchDone(batch::Outcome) }
 struct PreviewAttempt { layout: Option<layout_tools::LayoutState>, preview: Result<sdk::Preview, String> }
 
@@ -32,6 +34,14 @@ struct LabelApp {
     app_update_status: String,
     app_update_release: Option<app_updates::Release>,
     app_update_receiver: Option<std::sync::mpsc::Receiver<(String, Result<app_updates::Release, String>)>>,
+    app_update_download: Option<std::sync::mpsc::Receiver<update_package::DownloadEvent>>,
+    app_update_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    app_update_prepared: Option<update_package::Prepared>,
+    app_update_progress: Option<(u64, u64)>,
+    app_update_install_receiver: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+    app_update_restarting: bool,
+    app_update_acknowledge: Option<String>,
+    app_update_exit_after_download: bool,
     model_picture: Option<egui::TextureHandle>,
     export_receiver: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     text: String,
@@ -120,7 +130,7 @@ struct LabelApp {
 impl Default for LabelApp {
     fn default() -> Self {
         let template_path = built_in_template(9).unwrap_or_default();
-        let mut app = Self { app_update_repository: app_updates::DEFAULT_REPOSITORY.to_owned(), app_update_status: "Check GitHub for the latest app release.".into(), app_update_release: None, app_update_receiver: None, model_picture: None, export_receiver: None, text: String::new(), width_mm: 9, copies: 1, service_status: "Not checked".into(), status_receiver: None, device_status: None, device_status_time: None, template_path, preview_receiver: None, preview_image: None, highres_design: None, preview_dimensions: None, printable_dimensions: None, printable_origin: None, preview_snapshot: None, preview_objects: None, all_layouts: None, empty_primary_text: None, pending_move: None, preview_paper: Color32::WHITE, design_mode: true, design_image: None, design_image_key: String::new(), design_image_receiver: None, right_click_selection: None, preview_context_target: None, show_rulers: true, metric_units: true, show_about: false, show_preferences: false, show_tips: false, show_layout: false, show_guides: false, fit_requested: false, features: features::Features::default(), layout: layout_tools::LayoutState::default(), guides: guides::Guides::default(), canvas: canvas_layout::CanvasInteraction::default(), known_features: Vec::new(), known_image: false, removed_objects: Vec::new(), object_layouts: Vec::new(), project_path: None, saved_disk_snapshot: None, saved_key: String::new(), pending_document_action: None, data_tools: data_tools::DataTools::default(), prepared_batch: Vec::new(), show_batch: false, batch_selected: 0, batch_preview_receiver: None, batch_preview_key: None, batch_preview_texture: None, batch_status: String::new(), allow_close: false, preview_status: "Generate a preview to see the label.".into(), preview_base_key: None, threshold_image_blank: false, image_path: String::new(), black_and_white: true, threshold: 128, preview_key: None, pending_key: None, print_receiver: None, print_cancel: None, print_status: String::new(), connected: None, bold: false, italic: false, underline: false, font: "Segoe UI".into(), fonts: vec!["Segoe UI".into(), "Arial".into(), "Calibri".into()], fonts_receiver: None, align: "Center".into(), next_status_check: std::time::Instant::now(), file_status: String::new(), observed_key: String::new(), preview_due: None, zoom: 2.0, tray: None, tray_error: None };
+        let mut app = Self { app_update_repository: app_updates::DEFAULT_REPOSITORY.to_owned(), app_update_status: "Check GitHub for the latest app release.".into(), app_update_release: None, app_update_receiver: None, app_update_download: None, app_update_cancel: None, app_update_prepared: None, app_update_progress: None, app_update_install_receiver: None, app_update_restarting: false, app_update_acknowledge: None, app_update_exit_after_download: false, model_picture: None, export_receiver: None, text: String::new(), width_mm: 9, copies: 1, service_status: "Not checked".into(), status_receiver: None, device_status: None, device_status_time: None, template_path, preview_receiver: None, preview_image: None, highres_design: None, preview_dimensions: None, printable_dimensions: None, printable_origin: None, preview_snapshot: None, preview_objects: None, all_layouts: None, empty_primary_text: None, pending_move: None, preview_paper: Color32::WHITE, design_mode: true, design_image: None, design_image_key: String::new(), design_image_receiver: None, right_click_selection: None, preview_context_target: None, show_rulers: true, metric_units: true, show_about: false, show_preferences: false, show_tips: false, show_layout: false, show_guides: false, fit_requested: false, features: features::Features::default(), layout: layout_tools::LayoutState::default(), guides: guides::Guides::default(), canvas: canvas_layout::CanvasInteraction::default(), known_features: Vec::new(), known_image: false, removed_objects: Vec::new(), object_layouts: Vec::new(), project_path: None, saved_disk_snapshot: None, saved_key: String::new(), pending_document_action: None, data_tools: data_tools::DataTools::default(), prepared_batch: Vec::new(), show_batch: false, batch_selected: 0, batch_preview_receiver: None, batch_preview_key: None, batch_preview_texture: None, batch_status: String::new(), allow_close: false, preview_status: "Generate a preview to see the label.".into(), preview_base_key: None, threshold_image_blank: false, image_path: String::new(), black_and_white: true, threshold: 128, preview_key: None, pending_key: None, print_receiver: None, print_cancel: None, print_status: String::new(), connected: None, bold: false, italic: false, underline: false, font: "Segoe UI".into(), fonts: vec!["Segoe UI".into(), "Arial".into(), "Calibri".into()], fonts_receiver: None, align: "Center".into(), next_status_check: std::time::Instant::now(), file_status: String::new(), observed_key: String::new(), preview_due: None, zoom: 2.0, tray: None, tray_error: None };
         app.saved_key = app.document_key();
         app
     }
@@ -185,7 +195,7 @@ impl LabelApp {
     }
 
     fn start_app_update_check(&mut self) {
-        if self.app_update_receiver.is_some() { return; }
+        if self.app_update_receiver.is_some() || self.app_update_download.is_some() || self.app_update_restarting { return; }
         let repository = match app_updates::normalise_repository(&self.app_update_repository) {
             Ok(repository) => repository,
             Err(error) => { self.app_update_status = error; return; }
@@ -193,6 +203,8 @@ impl LabelApp {
         if let Err(error) = app_updates::save_repository(&repository) { self.app_update_status = error; return; }
         self.app_update_repository = repository.clone();
         self.app_update_release = None;
+        self.app_update_prepared = None;
+        self.app_update_progress = None;
         self.app_update_status = "Checking the latest stable app release…".into();
         let (send, receive) = std::sync::mpsc::channel();
         self.app_update_receiver = Some(receive);
@@ -203,13 +215,15 @@ impl LabelApp {
         ui.strong("App updates");
         ui.label(format!("Installed app version: {}", env!("CARGO_PKG_VERSION")));
         ui.label("GitHub repository");
-        if ui.add(egui::TextEdit::singleline(&mut self.app_update_repository).hint_text("owner/repository").char_limit(180).desired_width(400.0)).changed() {
+        let busy = self.app_update_receiver.is_some() || self.app_update_download.is_some() || self.app_update_restarting;
+        if ui.add_enabled(!busy, egui::TextEdit::singleline(&mut self.app_update_repository).hint_text("owner/repository").char_limit(180).desired_width(400.0)).changed() {
             self.app_update_release = None;
+            self.app_update_prepared = None;
             self.app_update_status = "Repository changed. Save it or check for an app update.".into();
         }
         ui.horizontal(|ui| {
-            if ui.add_enabled(self.app_update_receiver.is_none(), egui::Button::new("Check app updates")).clicked() { self.start_app_update_check(); }
-            if ui.add_enabled(self.app_update_receiver.is_none(), egui::Button::new("Save repository")).clicked() {
+            if ui.add_enabled(!busy, egui::Button::new("Check app updates")).clicked() { self.start_app_update_check(); }
+            if ui.add_enabled(!busy, egui::Button::new("Save repository")).clicked() {
                 self.app_update_status = match app_updates::save_repository(&self.app_update_repository) {
                     Ok(()) if self.app_update_repository.trim().is_empty() => "App update repository cleared.".into(),
                     Ok(()) => "App update repository saved locally.".into(),
@@ -218,13 +232,84 @@ impl LabelApp {
             }
         });
         ui.label(&self.app_update_status);
+        if self.app_update_download.is_some() {
+            if let Some((received, total)) = self.app_update_progress.filter(|(_, total)| *total > 0) {
+                ui.add(egui::ProgressBar::new((received as f64 / total as f64).clamp(0.0, 1.0) as f32).text(format!("{:.1} / {:.1} MB", received as f64 / 1_048_576.0, total as f64 / 1_048_576.0)));
+            } else { ui.spinner(); }
+            if ui.button("Cancel download").clicked() {
+                if let Some(cancel) = &self.app_update_cancel { cancel.store(true, std::sync::atomic::Ordering::Release); }
+                self.app_update_status = "Cancelling the update download…".into();
+            }
+        }
+        let mut download = false;
         if let Some(release) = &self.app_update_release {
+            if release.newer && self.app_update_prepared.is_none() {
+                download = ui.add_enabled(!busy && release.package.is_some(), egui::Button::new("Download update")).clicked();
+                if release.package.is_none() { ui.small("Automatic installation requires an official Windows release with verified package and checksum assets."); }
+            }
             ui.hyperlink_to("Open release and downloads", &release.url);
             if !release.notes.is_empty() {
                 ui.collapsing("Release notes", |ui| { egui::ScrollArea::vertical().id_salt("app-release-notes").max_height(140.0).show(ui, |ui| { ui.label(&release.notes); }); });
             }
         }
-        ui.label("Checks public stable releases. Save your label and close the app before installing a downloaded update.");
+        if download { self.start_app_update_download(); }
+        if let Some(prepared) = &self.app_update_prepared {
+            ui.label(format!("Version {} is downloaded and verified.", prepared.version));
+            let ready = !busy && !self.update_printer_work_busy();
+            if ui.add_enabled(ready, egui::Button::new("Restart and install")).on_disabled_hover_text("Wait for printer operations and exports to finish.").clicked() {
+                self.request_document_action(PendingDocumentAction::InstallUpdate, ui.ctx());
+            }
+        }
+        ui.small("Downloads are verified before installation. Save your work before restarting. The previous version is kept locally for recovery.");
+    }
+
+    fn update_printer_work_busy(&self) -> bool {
+        self.print_receiver.is_some() || self.export_receiver.is_some() || self.preview_receiver.is_some()
+            || self.batch_preview_receiver.is_some() || self.status_receiver.is_some() || self.fonts_receiver.is_some()
+    }
+
+    fn start_app_update_download(&mut self) {
+        if self.app_update_download.is_some() || self.app_update_restarting { return; }
+        let Some(package) = self.app_update_release.as_ref().filter(|release| release.newer).and_then(|release| release.package.clone()) else { return; };
+        let install = match update_package::install_directory() { Ok(path) => path, Err(error) => { self.app_update_status = error; return; } };
+        let (send, receive) = std::sync::mpsc::channel();
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.app_update_cancel = Some(cancel.clone()); self.app_update_download = Some(receive);
+        self.app_update_prepared = None; self.app_update_progress = None;
+        self.app_update_status = "Preparing the verified update download…".into();
+        std::thread::spawn(move || {
+            let result = update_package::prepare(&package, &install, &cancel, |message, done, total| { let _ = send.send(update_package::DownloadEvent::Progress(message, done, total)); });
+            let _ = send.send(update_package::DownloadEvent::Finished(result));
+        });
+    }
+
+    fn poll_app_update_download(&mut self, ctx: &egui::Context) {
+        for _ in 0..64 {
+            let Some(receiver) = &self.app_update_download else { break; };
+            match receiver.try_recv() {
+                Ok(update_package::DownloadEvent::Progress(message, done, total)) => {
+                    if !self.app_update_cancel.as_ref().is_some_and(|cancel| cancel.load(std::sync::atomic::Ordering::Acquire)) { self.app_update_status = message; }
+                    self.app_update_progress = Some((done, total));
+                }
+                Ok(update_package::DownloadEvent::Finished(result)) => {
+                    let cancelled = self.app_update_cancel.as_ref().is_some_and(|cancel| cancel.load(std::sync::atomic::Ordering::Acquire));
+                    match result {
+                        Ok(prepared) if !cancelled => { self.app_update_status = "Update verified. Save your work, then restart to install it.".into(); self.app_update_prepared = Some(prepared); }
+                        Ok(_) => self.app_update_status = "Update download cancelled.".into(),
+                        Err(error) => self.app_update_status = error,
+                    }
+                    self.app_update_download = None; self.app_update_cancel = None; self.app_update_progress = None;
+                    if self.app_update_exit_after_download { self.app_update_exit_after_download = false; self.request_document_action(PendingDocumentAction::Exit, ctx); }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.app_update_download = None; self.app_update_cancel = None; self.app_update_progress = None;
+                    self.app_update_status = "The update download stopped unexpectedly. Nothing was installed.".into();
+                    if self.app_update_exit_after_download { self.app_update_exit_after_download = false; self.request_document_action(PendingDocumentAction::Exit, ctx); }
+                }
+            }
+        }
+        if self.app_update_download.is_some() { ctx.request_repaint_after(std::time::Duration::from_millis(200)); }
     }
 
     fn can_export(&self) -> bool {
@@ -544,12 +629,20 @@ impl LabelApp {
         Ok(())
     }
     fn request_document_action(&mut self, action: PendingDocumentAction, ctx: &egui::Context) {
-        if matches!(action, PendingDocumentAction::Exit) && self.export_receiver.is_some() { self.file_status = "Wait for the DYMO label export to finish before exiting.".into(); return; }
-        if matches!(action, PendingDocumentAction::Exit) && self.print_receiver.is_some() {
+        if self.app_update_restarting { return; }
+        if matches!(action, PendingDocumentAction::Exit) && self.app_update_download.is_some() {
+            self.app_update_exit_after_download = true;
+            if let Some(cancel) = &self.app_update_cancel { cancel.store(true, std::sync::atomic::Ordering::Release); }
+            self.app_update_status = "Cancelling the download before closing…".into(); return;
+        }
+        let closing = matches!(action, PendingDocumentAction::Exit | PendingDocumentAction::InstallUpdate);
+        if closing && self.export_receiver.is_some() { self.file_status = "Wait for the DYMO label export to finish before closing or restarting.".into(); return; }
+        if closing && self.print_receiver.is_some() {
             self.print_status = "Wait for the current print job to finish, or cancel remaining labels, before exiting.".into();
             return;
         }
-        if self.document_key() != self.saved_key || (matches!(action, PendingDocumentAction::Exit) && self.data_tools.has_unsaved_contacts()) { self.pending_document_action = Some(action); }
+        if matches!(action, PendingDocumentAction::InstallUpdate) && self.update_printer_work_busy() { self.app_update_status = "Wait for printer operations to finish before restarting.".into(); return; }
+        if self.document_key() != self.saved_key || (closing && self.data_tools.has_unsaved_contacts()) { self.pending_document_action = Some(action); }
         else { self.perform_document_action(action, ctx); }
     }
     fn perform_document_action(&mut self, action: PendingDocumentAction, ctx: &egui::Context) {
@@ -565,6 +658,7 @@ impl LabelApp {
                 self.file_status = match self.load_project(&path) { Ok(()) => { ctx.data_mut(|data| data.remove::<egui::text_edit::TextEditState>(egui::Id::new("label-text-editor"))); "Label opened.".into() }, Err(e) => e };
             }
             PendingDocumentAction::Exit => {
+                if self.app_update_download.is_some() { self.request_document_action(PendingDocumentAction::Exit, ctx); return; }
                 if self.export_receiver.is_some() { self.file_status = "Wait for the DYMO label export to finish before exiting.".into(); return; }
                 // The unsaved-changes dialogue is non-modal: printing may have
                 // started since the exit request. Recheck at the final gate.
@@ -573,6 +667,16 @@ impl LabelApp {
                     return;
                 }
                 self.allow_close = true; ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            PendingDocumentAction::InstallUpdate => {
+                if self.update_printer_work_busy() || self.app_update_download.is_some() || self.app_update_restarting {
+                    self.app_update_status = "Wait for printer operations and downloads to finish before restarting.".into(); return;
+                }
+                let Some(prepared) = self.app_update_prepared.clone() else { self.app_update_status = "Download and verify an update first.".into(); return; };
+                let (send, receive) = std::sync::mpsc::channel();
+                self.app_update_install_receiver = Some(receive); self.app_update_restarting = true;
+                self.app_update_status = "Preparing the verified restart. Your current app will stay open if this fails.".into();
+                std::thread::spawn(move || { let _ = send.send(updater::start(&prepared)); });
             }
         }
     }
@@ -801,8 +905,26 @@ fn replace_text_range(text: &mut String, range: std::ops::Range<usize>, replacem
 impl LabelApp {
     fn draw(&mut self, ui: &mut egui::Ui) {
             ui.painter().rect_filled(ui.max_rect(), 0.0, ui.visuals().panel_fill);
+            if self.app_update_restarting {
+                if ui.input(|input| input.viewport().close_requested()) && !self.allow_close { ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose); }
+                let received = self.app_update_install_receiver.as_ref().map(|receiver| receiver.try_recv());
+                match received {
+                    Some(Ok(Ok(()))) => { self.app_update_install_receiver = None; self.allow_close = true; ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close); }
+                    Some(Ok(Err(error))) => { self.app_update_install_receiver = None; self.app_update_restarting = false; self.app_update_status = error; }
+                    Some(Err(std::sync::mpsc::TryRecvError::Disconnected)) => { self.app_update_install_receiver = None; self.app_update_restarting = false; self.app_update_status = "The restart worker stopped. The current app has been kept open.".into(); }
+                    _ => {}
+                }
+                if self.app_update_restarting {
+                    ui.heading("Installing app update"); ui.label(&self.app_update_status); ui.spinner();
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(100)); return;
+                }
+            }
+            self.poll_app_update_download(ui.ctx());
             if ui.input(|input| input.viewport().close_requested()) && !self.allow_close {
-                if self.print_receiver.is_some() {
+                if self.app_update_download.is_some() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    self.request_document_action(PendingDocumentAction::Exit, ui.ctx());
+                } else if self.print_receiver.is_some() {
                     ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
                     self.print_status = "Wait for the current print job to finish, or cancel remaining labels, before exiting.".into();
                 } else if self.export_receiver.is_some() {
@@ -1448,18 +1570,32 @@ impl LabelApp {
             if self.pending_document_action.is_some() {
                 let mut discard = false;
                 let mut cancel = false;
+                let mut save = false;
                 egui::Window::new("Unsaved changes").collapsible(false).resizable(false).show(ui.ctx(), |ui| {
-                    if matches!(self.pending_document_action, Some(PendingDocumentAction::Exit)) && self.data_tools.has_unsaved_contacts() {
-                        ui.label("There are unsaved contact changes, and the label may also have unsaved changes. Discard them and exit?");
+                    if matches!(self.pending_document_action, Some(PendingDocumentAction::Exit | PendingDocumentAction::InstallUpdate)) && self.data_tools.has_unsaved_contacts() {
+                        ui.label("There are unsaved contact changes, and the label may also have unsaved changes. Discard them and continue?");
                     } else { ui.label("This label has unsaved changes. Discard them and continue?"); }
                     ui.horizontal(|ui| {
+                        if matches!(self.pending_document_action, Some(PendingDocumentAction::InstallUpdate)) && !self.data_tools.has_unsaved_contacts() {
+                            save = ui.button("Save label and continue").clicked();
+                        }
                         discard = ui.button("Discard and continue").clicked();
                         cancel = ui.button("Cancel").clicked();
                     });
                 });
-                if discard { if let Some(action) = self.pending_document_action.take() { self.perform_document_action(action, ui.ctx()); } }
+                if save {
+                    let result = if self.project_path.is_some() { Some(self.save_current()) }
+                        else { rfd::FileDialog::new().add_filter("420P labels", &["420p"]).set_file_name("label.420p").save_file().map(|path| self.save_as_from_dialog(&path)) };
+                    match result {
+                        Some(Ok(())) => { if let Some(action) = self.pending_document_action.take() { self.perform_document_action(action, ui.ctx()); } }
+                        Some(Err(error)) => self.file_status = error,
+                        None => {}
+                    }
+                }
+                else if discard { if let Some(action) = self.pending_document_action.take() { self.perform_document_action(action, ui.ctx()); } }
                 else if cancel { self.pending_document_action = None; }
             }
+            if self.app_update_restarting { ui.ctx().request_repaint_after(std::time::Duration::from_millis(100)); return; }
             let names = self.features.names();
             if self.known_features.iter().any(|name| !names.contains(name)) && self.file_status.starts_with("Added ") {
                 self.file_status.clear();
@@ -1505,7 +1641,15 @@ impl LabelApp {
 }
 
 impl eframe::App for LabelApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) { self.draw(ui); }
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.draw(ui);
+        if let Some(token) = self.app_update_acknowledge.take() {
+            match updater::acknowledge(&token) {
+                Ok(()) => self.app_update_status = format!("Updated to version {}. The previous version is kept locally for recovery.", env!("CARGO_PKG_VERSION")),
+                Err(error) => { self.app_update_status = error; self.allow_close = true; self.app_update_restarting = true; ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close); }
+            }
+        }
+    }
 }
 
 fn formatting_controls(ui: &mut egui::Ui, bold: &mut bool, italic: &mut bool, underline: &mut bool, font: &mut String, fonts: &[String], align: &mut String) -> (egui::Rect, egui::Rect) {
@@ -1663,7 +1807,7 @@ mod project_tests {
             app.next_status_check = std::time::Instant::now() + std::time::Duration::from_secs(60);
             let (send, receive) = std::sync::mpsc::channel();
             app.app_update_receiver = Some(receive);
-            send.send(("example/label-app".into(), Ok(app_updates::Release { version: "1.0.0".into(), notes: "Synthetic notes".into(), url: "https://github.com/example/label-app/releases/tag/v1.0.0".into(), newer: true }))).unwrap();
+            send.send(("example/label-app".into(), Ok(app_updates::Release { version: "1.0.0".into(), notes: "Synthetic notes".into(), url: "https://github.com/example/label-app/releases/tag/v1.0.0".into(), newer: true, package: None }))).unwrap();
             egui::__run_test_ui(|ui| { ui.set_width(1000.0); app.draw(ui); });
             assert_eq!(app.text, "Keep this label");
             assert_eq!(app.app_update_release.is_some(), current_repository == "example/label-app");
@@ -1682,6 +1826,53 @@ mod project_tests {
         app.print_receiver = None;
         app.perform_document_action(PendingDocumentAction::Exit, &ctx);
         assert!(app.allow_close);
+    }
+    #[test]
+    fn update_restart_preserves_unsaved_work_until_the_user_decides() {
+        let mut app = LabelApp { text: "Unsaved label".into(), ..Default::default() };
+        app.request_document_action(PendingDocumentAction::InstallUpdate, &egui::Context::default());
+        assert!(matches!(app.pending_document_action, Some(PendingDocumentAction::InstallUpdate)));
+        assert_eq!(app.text, "Unsaved label"); assert!(!app.allow_close); assert!(!app.app_update_restarting);
+        app.pending_document_action = None;
+        assert_eq!(app.text, "Unsaved label"); assert!(!app.allow_close);
+    }
+    #[test]
+    fn update_restart_rechecks_late_printer_work_before_starting_a_helper() {
+        let mut app = LabelApp::default(); let ctx = egui::Context::default();
+        let (_send, receive) = std::sync::mpsc::channel(); app.print_receiver = Some(receive);
+        app.perform_document_action(PendingDocumentAction::InstallUpdate, &ctx);
+        assert!(!app.allow_close); assert!(!app.app_update_restarting); assert!(app.app_update_install_receiver.is_none());
+        app.print_receiver = None;
+        let (_send, receive) = std::sync::mpsc::channel(); app.preview_receiver = Some(receive);
+        app.perform_document_action(PendingDocumentAction::InstallUpdate, &ctx);
+        assert!(!app.allow_close); assert!(!app.app_update_restarting); assert!(app.app_update_install_receiver.is_none());
+    }
+    #[test]
+    fn closing_cancels_a_download_and_waits_for_it_without_discarding_a_label() {
+        let mut app = LabelApp { text: "Keep this work".into(), ..Default::default() };
+        let (send, receive) = std::sync::mpsc::channel(); app.app_update_download = Some(receive);
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)); app.app_update_cancel = Some(cancel.clone());
+        app.request_document_action(PendingDocumentAction::Exit, &egui::Context::default());
+        assert!(cancel.load(std::sync::atomic::Ordering::Acquire)); assert!(!app.allow_close); assert!(app.pending_document_action.is_none());
+        send.send(update_package::DownloadEvent::Finished(Err("Cancelled".into()))).unwrap();
+        app.poll_app_update_download(&egui::Context::default());
+        assert!(matches!(app.pending_document_action, Some(PendingDocumentAction::Exit))); assert_eq!(app.text, "Keep this work"); assert!(!app.allow_close);
+    }
+    #[test]
+    fn a_cancelled_download_cannot_become_an_installable_update() {
+        let mut app = LabelApp::default(); let (send, receive) = std::sync::mpsc::channel(); app.app_update_download = Some(receive);
+        app.app_update_cancel = Some(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)));
+        send.send(update_package::DownloadEvent::Finished(Ok(update_package::Prepared { version: "9.0.0".into(), install: std::path::PathBuf::from("synthetic"), files: Vec::new() }))).unwrap();
+        app.poll_app_update_download(&egui::Context::default()); assert!(app.app_update_prepared.is_none()); assert!(app.app_update_download.is_none());
+    }
+    #[test]
+    fn a_restart_helper_error_keeps_the_editor_open_and_the_label_intact() {
+        let mut app = LabelApp { text: "Keep this label".into(), app_update_restarting: true, ..Default::default() };
+        app.next_status_check = std::time::Instant::now() + std::time::Duration::from_secs(600);
+        let (send, receive) = std::sync::mpsc::channel(); app.app_update_install_receiver = Some(receive);
+        send.send(Err("Synthetic permission failure".into())).unwrap();
+        egui::__run_test_ui(|ui| { ui.set_width(1000.0); app.draw(ui); });
+        assert!(!app.allow_close); assert!(!app.app_update_restarting); assert_eq!(app.text, "Keep this label"); assert!(app.app_update_status.contains("Synthetic permission failure"));
     }
     #[test]
     fn full_editor_primary_drag_moves_shape_with_empty_text_and_nested_scroll_area() {
@@ -1929,6 +2120,11 @@ mod project_tests {
 }
 
 fn main() -> eframe::Result {
+    let (acknowledge, update_message, _instance) = match updater::startup() {
+        Ok(updater::Startup::Run { acknowledge, message, instance }) => (acknowledge, message, instance),
+        Ok(updater::Startup::Exit) => return Ok(()),
+        Err(error) => { updater::show_error(&error); return Ok(()); }
+    };
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/printer-420p-v6.png"))
         .expect("bundled DYMO icon must be a valid PNG");
     let options = eframe::NativeOptions {
@@ -1953,9 +2149,18 @@ fn main() -> eframe::Result {
             style.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(12.0));
             cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
             let mut app = LabelApp::default();
+            app.app_update_acknowledge = acknowledge;
+            if let Some(message) = update_message { app.app_update_status = message; }
             match app_updates::load_repository() {
                 Ok(repository) => app.app_update_repository = repository,
                 Err(error) => app.app_update_status = error,
+            }
+            if app_updates::normalise_repository(&app.app_update_repository).ok().is_some_and(|repo| repo.eq_ignore_ascii_case(app_updates::DEFAULT_REPOSITORY)) {
+                match update_package::install_directory().and_then(|path| update_package::resume(&path)) {
+                    Ok(Some(prepared)) => { app.app_update_status = format!("Version {} is already downloaded and verified. Restart when ready.", prepared.version); app.app_update_prepared = Some(prepared); }
+                    Ok(None) => {}
+                    Err(_) => app.app_update_status = "A previous download could not be verified. Check for updates and download it again.".into(),
+                }
             }
             match create_tray(&cc.egui_ctx) { Ok(tray) => app.tray = Some(tray), Err(e) => app.tray_error = Some(e) };
             let (send, receive) = std::sync::mpsc::channel();

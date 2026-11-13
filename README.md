@@ -13,7 +13,7 @@ A Windows desktop label editor dedicated to the DYMO LabelManager 420P. The inte
 - Object selection, dragging, guides, alignment and manual positions retained across object changes.
 - Shapes, lines, addresses, barcodes, QR codes, captured dates and counters.
 - Local `.420p` project files, checked `.dymo` export, contacts and CSV/TSV batches.
-- Connection and battery status, notification-area restoration and GitHub app update checks.
+- Connection and battery status, notification-area restoration, and verified GitHub update downloads and installation.
 
 Print jobs use the same frozen template, image and captured object values as the verified preview. Batches validate all labels before submission and stop on failure. An accepted job is not confirmation of a physical print.
 
@@ -39,9 +39,15 @@ The `sdk` directory must remain beside `label-studio-420p.exe`. Local preference
 
 ## Updates
 
-Settings and Help check this project's public GitHub repository for the latest stable app release. Fresh installations default to `noswimmingplease/420p-label-studio`. Saved settings using the previous `noswimmingplease/dymo-420p-rust` name migrate to this address; custom repositories and disabled updates are preserved. Checks display release notes and a link to the download page. Save the label and close the app before replacing it with a downloaded release. Checks do not execute downloads or replace a running app. Firmware and DYMO software update controls have been removed.
+Settings and Help check this project's public GitHub repository for the latest stable app release. Fresh installations default to `noswimmingplease/420p-label-studio`. Saved settings using the previous `noswimmingplease/dymo-420p-rust` name migrate to this address; custom repositories and disabled updates are preserved.
 
-Versions 0.1.1 and 0.1.2 reject repository redirects. After the repository rename, download version 0.1.3 or later manually from [420P Label Studio releases](https://github.com/noswimmingplease/420p-label-studio/releases), extract the complete ZIP and use its executable. Future checks then use the new repository directly.
+For an official release, choose **Download update**, then **Restart and install**. The app checks the archive against GitHub's SHA-256 asset digest and the release checksum file, extracts only managed application files, checks the executable's x64 format and version, and verifies the staged files again before restart. Downloads can be cancelled and completed downloads remain available after reopening the app. Custom repositories retain release checks and download links; automatic installation is restricted to this project's official repository.
+
+Installation requires a writable application folder. It waits for printer operations and exports to finish, checks unsaved labels and contacts, and waits for the old process to exit. Other windows in the same Windows session must be closed, including tray windows. A separate helper replaces the managed files, preserving unrelated files and the separate project, contact and preference stores. It retains one local rollback set and restores the previous files if installation fails or the new app does not acknowledge its first window. An interrupted transaction is recovered on the next launch; conflicting externally modified files are preserved for manual recovery. Cleanup after a verified restart rotates the previous rollback. Temporary updates and recovery files stay under the application's `.420p-updater` directory and are never uploaded.
+
+Release binaries remain unsigned. Checksums detect corruption but do not protect against a compromised release publisher. The updater does not install drivers, prerequisites or firmware, request administrator privileges, or silently install an update while the editor is in use.
+
+Versions 0.1.1 and 0.1.2 reject repository redirects; change their update repository in Settings to the new address or upgrade manually. Version 0.1.3 has release checks but no installer. Install version 0.1.4 or later once from [420P Label Studio releases](https://github.com/noswimmingplease/420p-label-studio/releases) to enable future in-app installation.
 
 ## Limitations
 

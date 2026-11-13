@@ -13,3 +13,4 @@
 *.log
 *.420p
 app-updates.json
+.420p-updater/

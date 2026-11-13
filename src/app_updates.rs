@@ -1,4 +1,4 @@
-//! Public GitHub release checks. No credentials, downloads or installation.
+//! Public, unauthenticated GitHub release checks and verified asset metadata.
 use std::{fs, io::Read, os::windows::process::CommandExt, path::PathBuf, process::{Command, Stdio}};
 
 const MAX_RESPONSE_BYTES: usize = 1_048_576;
@@ -13,6 +13,7 @@ pub struct Release {
     pub notes: String,
     pub url: String,
     pub newer: bool,
+    pub package: Option<crate::update_package::Package>,
 }
 
 pub fn normalise_repository(input: &str) -> Result<String, String> {
@@ -115,7 +116,8 @@ fn parse_release(repository: &str, status: u16, body: &[u8], current: &str) -> R
     let notes = value["body"].as_str().unwrap_or("");
     let mut trimmed: String = notes.chars().take(MAX_NOTES_CHARS).collect();
     if notes.chars().count() > MAX_NOTES_CHARS { trimmed.push_str("\n… Open the release page for the remaining notes."); }
-    Ok(Release { version: version.to_owned(), notes: trimmed, url: url.to_owned(), newer: latest > current })
+    Ok(Release { version: version.to_owned(), notes: trimmed, url: url.to_owned(), newer: latest > current,
+        package: crate::update_package::package(repository, version, tag, &value) })
 }
 
 fn version_parts(version: &str) -> Option<[u32; 4]> {
