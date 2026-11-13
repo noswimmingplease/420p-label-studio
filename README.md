@@ -39,7 +39,7 @@ The `sdk` directory must remain beside `label-studio-420p.exe`. Local preference
 
 ## Updates
 
-Settings and Help check this project's public GitHub repository for the latest stable app release. Fresh installations default to `noswimmingplease/420p-label-studio`. Saved settings using the previous `noswimmingplease/dymo-420p-rust` name migrate to this address; custom repositories and disabled updates are preserved.
+Settings and Help check this project's public GitHub repository for the latest stable app release. Fresh installations default to `cantwalkwontrun/420p-label-studio`. Saved settings using the previous `noswimmingplease/420p-label-studio`, `noswimmingplease/dymo-420p-rust` or `cantwalkwontrun/dymo-420p-rust` addresses migrate to this address; custom repositories and disabled updates are preserved.
 
 The app also checks once in the background when it opens. A dismissible notice appears only when a newer stable version is available; **View update** opens App updates. Connection failures and an up-to-date result do not interrupt editing. Disabled updates and unreadable preferences skip the automatic check. Startup checks do not rewrite saved settings, discard verified downloads, download packages or install anything automatically. Updates already downloaded remain ready to install.
 
@@ -49,7 +49,7 @@ Installation requires a writable application folder. It waits for printer operat
 
 Release binaries remain unsigned. Checksums detect corruption but do not protect against a compromised release publisher. The updater does not install drivers, prerequisites or firmware, request administrator privileges, or silently install an update while the editor is in use.
 
-Versions 0.1.1 and 0.1.2 reject repository redirects; change their update repository in Settings to the new address or upgrade manually. Version 0.1.3 has release checks but no installer. Install version 0.1.4 or later once from [420P Label Studio releases](https://github.com/noswimmingplease/420p-label-studio/releases) to enable future in-app installation.
+Versions 0.1.1 and 0.1.2 reject repository redirects; change their update repository in Settings to the new address or upgrade manually. Version 0.1.3 has release checks but no installer. Install version 0.1.4 or later once from [420P Label Studio releases](https://github.com/cantwalkwontrun/420p-label-studio/releases) to enable future in-app installation.
 
 ## Limitations
 

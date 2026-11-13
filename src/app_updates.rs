@@ -4,7 +4,9 @@ use std::{fs, io::Read, os::windows::process::CommandExt, path::PathBuf, process
 const MAX_RESPONSE_BYTES: usize = 1_048_576;
 const MAX_NOTES_CHARS: usize = 8_000;
 const MAX_PREFERENCES_BYTES: u64 = 4_096;
-pub const DEFAULT_REPOSITORY: &str = "noswimmingplease/420p-label-studio";
+pub const DEFAULT_REPOSITORY: &str = "cantwalkwontrun/420p-label-studio";
+const PREVIOUS_OWNER_REPOSITORY: &str = "noswimmingplease/420p-label-studio";
+const RENAMED_LEGACY_REPOSITORY: &str = "cantwalkwontrun/dymo-420p-rust";
 const LEGACY_REPOSITORY: &str = "noswimmingplease/dymo-420p-rust";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,7 +30,7 @@ pub fn normalise_repository(input: &str) -> Result<String, String> {
     if !owner_valid || !repository_valid { return Err("Use a valid public GitHub owner/repository without extra paths, queries or credentials.".into()); }
     let repository = format!("{owner}/{repository}");
     // Migrate this project's known rename without trusting arbitrary redirects.
-    if repository.eq_ignore_ascii_case(LEGACY_REPOSITORY) {
+    if [LEGACY_REPOSITORY, PREVIOUS_OWNER_REPOSITORY, RENAMED_LEGACY_REPOSITORY].iter().any(|previous| repository.eq_ignore_ascii_case(previous)) {
         Ok(DEFAULT_REPOSITORY.to_owned())
     } else {
         Ok(repository)
@@ -150,7 +152,7 @@ mod tests {
         serde_json::to_vec(&serde_json::json!({"draft": false, "prerelease": false, "tag_name": tag, "html_url": url, "body": "Synthetic release notes."})).unwrap()
     }
     #[test] fn known_repository_rename_migrates_saved_values_and_checks_the_new_release_page() {
-        for input in [LEGACY_REPOSITORY, "NOSWIMMINGPLEASE/DYMO-420P-RUST",
+        for input in [LEGACY_REPOSITORY, PREVIOUS_OWNER_REPOSITORY, RENAMED_LEGACY_REPOSITORY, "NOSWIMMINGPLEASE/420P-LABEL-STUDIO", "NOSWIMMINGPLEASE/DYMO-420P-RUST",
             " https://github.com/noswimmingplease/dymo-420p-rust.git/ "] {
             let repository = normalise_repository(input).unwrap();
             assert_eq!(repository, DEFAULT_REPOSITORY);
