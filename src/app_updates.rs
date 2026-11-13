@@ -4,7 +4,8 @@ use std::{fs, io::Read, os::windows::process::CommandExt, path::PathBuf, process
 const MAX_RESPONSE_BYTES: usize = 1_048_576;
 const MAX_NOTES_CHARS: usize = 8_000;
 const MAX_PREFERENCES_BYTES: u64 = 4_096;
-pub const DEFAULT_REPOSITORY: &str = "noswimmingplease/dymo-420p-rust";
+pub const DEFAULT_REPOSITORY: &str = "noswimmingplease/420p-label-studio";
+const LEGACY_REPOSITORY: &str = "noswimmingplease/dymo-420p-rust";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Release {
@@ -24,7 +25,13 @@ pub fn normalise_repository(input: &str) -> Result<String, String> {
     let repository_valid = !repository.is_empty() && repository.len() <= 100 && !matches!(repository, "." | "..")
         && repository.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
     if !owner_valid || !repository_valid { return Err("Use a valid public GitHub owner/repository without extra paths, queries or credentials.".into()); }
-    Ok(format!("{owner}/{repository}"))
+    let repository = format!("{owner}/{repository}");
+    // Migrate this project's known rename without trusting arbitrary redirects.
+    if repository.eq_ignore_ascii_case(LEGACY_REPOSITORY) {
+        Ok(DEFAULT_REPOSITORY.to_owned())
+    } else {
+        Ok(repository)
+    }
 }
 
 fn preferences_path() -> Result<PathBuf, String> {
@@ -128,14 +135,33 @@ mod tests {
     #[test] fn new_install_uses_project_repository_and_preserves_explicit_preferences() {
         let path = std::env::temp_dir().join(format!("dymo-update-default-{}-{}.json", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         assert_eq!(read_repository(&path).unwrap(), DEFAULT_REPOSITORY);
-        for repository in ["", "example/another-app"] {
-            fs::write(&path, serde_json::to_vec(&serde_json::json!({"version":1,"repository":repository})).unwrap()).unwrap();
-            assert_eq!(read_repository(&path).unwrap(), repository);
+        for (repository, expected) in [("", ""), ("example/another-app", "example/another-app"),
+            (LEGACY_REPOSITORY, DEFAULT_REPOSITORY), (DEFAULT_REPOSITORY, DEFAULT_REPOSITORY)] {
+            let bytes = serde_json::to_vec(&serde_json::json!({"version":1,"repository":repository})).unwrap();
+            fs::write(&path, &bytes).unwrap();
+            assert_eq!(read_repository(&path).unwrap(), expected);
+            assert_eq!(fs::read(&path).unwrap(), bytes);
         }
         fs::remove_file(path).unwrap();
     }
     fn response(tag: &str, url: &str) -> Vec<u8> {
         serde_json::to_vec(&serde_json::json!({"draft": false, "prerelease": false, "tag_name": tag, "html_url": url, "body": "Synthetic release notes."})).unwrap()
+    }
+    #[test] fn known_repository_rename_migrates_saved_values_and_checks_the_new_release_page() {
+        for input in [LEGACY_REPOSITORY, "NOSWIMMINGPLEASE/DYMO-420P-RUST",
+            " https://github.com/noswimmingplease/dymo-420p-rust.git/ "] {
+            let repository = normalise_repository(input).unwrap();
+            assert_eq!(repository, DEFAULT_REPOSITORY);
+            let url = format!("https://github.com/{DEFAULT_REPOSITORY}/releases/tag/v0.1.3");
+            let release = parse_release(&repository, 200, &response("v0.1.3", &url), "0.1.2").unwrap();
+            assert!(release.newer);
+            assert_eq!(release.url, url);
+        }
+        for input in ["example/dymo-420p-rust", "example/another-app"] {
+            assert_eq!(normalise_repository(input).unwrap(), input);
+        }
+        assert!(normalise_repository("noswimmingplease/dymo-420p-rust/extra").is_err());
+        assert!(normalise_repository("noswimmingplease/dymo-420p-rust?token=secret").is_err());
     }
     #[test] fn repository_normalisation_rejects_extra_paths_and_credentials() {
         assert_eq!(normalise_repository(" https://github.com/example-owner/label-app.git/ ").unwrap(), "example-owner/label-app");

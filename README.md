@@ -39,7 +39,9 @@ The `sdk` directory must remain beside `label-studio-420p.exe`. Local preference
 
 ## Updates
 
-Settings and Help check this project's public GitHub repository for the latest stable app release. Fresh installations default to `noswimmingplease/dymo-420p-rust`; an explicitly saved repository or disabled setting is preserved. Checks display release notes and a link to the download page. Save the label and close the app before replacing it with a downloaded release. Checks do not execute downloads or replace a running app. Firmware and DYMO software update controls have been removed.
+Settings and Help check this project's public GitHub repository for the latest stable app release. Fresh installations default to `noswimmingplease/420p-label-studio`. Saved settings using the previous `noswimmingplease/dymo-420p-rust` name migrate to this address; custom repositories and disabled updates are preserved. Checks display release notes and a link to the download page. Save the label and close the app before replacing it with a downloaded release. Checks do not execute downloads or replace a running app. Firmware and DYMO software update controls have been removed.
+
+Versions 0.1.1 and 0.1.2 reject repository redirects. After the repository rename, download version 0.1.3 or later manually from [420P Label Studio releases](https://github.com/noswimmingplease/420p-label-studio/releases), extract the complete ZIP and use its executable. Future checks then use the new repository directly.
 
 ## Limitations
 
