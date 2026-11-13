@@ -42,6 +42,10 @@ struct LabelApp {
     app_update_restarting: bool,
     app_update_acknowledge: Option<String>,
     app_update_exit_after_download: bool,
+    app_update_startup_checked: bool,
+    app_update_dismissed_version: Option<String>,
+    app_update_startup_message: Option<String>,
+    app_update_scroll_requested: bool,
     model_picture: Option<egui::TextureHandle>,
     export_receiver: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     text: String,
@@ -130,7 +134,7 @@ struct LabelApp {
 impl Default for LabelApp {
     fn default() -> Self {
         let template_path = built_in_template(9).unwrap_or_default();
-        let mut app = Self { app_update_repository: app_updates::DEFAULT_REPOSITORY.to_owned(), app_update_status: "Check GitHub for the latest app release.".into(), app_update_release: None, app_update_receiver: None, app_update_download: None, app_update_cancel: None, app_update_prepared: None, app_update_progress: None, app_update_install_receiver: None, app_update_restarting: false, app_update_acknowledge: None, app_update_exit_after_download: false, model_picture: None, export_receiver: None, text: String::new(), width_mm: 9, copies: 1, service_status: "Not checked".into(), status_receiver: None, device_status: None, device_status_time: None, template_path, preview_receiver: None, preview_image: None, highres_design: None, preview_dimensions: None, printable_dimensions: None, printable_origin: None, preview_snapshot: None, preview_objects: None, all_layouts: None, empty_primary_text: None, pending_move: None, preview_paper: Color32::WHITE, design_mode: true, design_image: None, design_image_key: String::new(), design_image_receiver: None, right_click_selection: None, preview_context_target: None, show_rulers: true, metric_units: true, show_about: false, show_preferences: false, show_tips: false, show_layout: false, show_guides: false, fit_requested: false, features: features::Features::default(), layout: layout_tools::LayoutState::default(), guides: guides::Guides::default(), canvas: canvas_layout::CanvasInteraction::default(), known_features: Vec::new(), known_image: false, removed_objects: Vec::new(), object_layouts: Vec::new(), project_path: None, saved_disk_snapshot: None, saved_key: String::new(), pending_document_action: None, data_tools: data_tools::DataTools::default(), prepared_batch: Vec::new(), show_batch: false, batch_selected: 0, batch_preview_receiver: None, batch_preview_key: None, batch_preview_texture: None, batch_status: String::new(), allow_close: false, preview_status: "Generate a preview to see the label.".into(), preview_base_key: None, threshold_image_blank: false, image_path: String::new(), black_and_white: true, threshold: 128, preview_key: None, pending_key: None, print_receiver: None, print_cancel: None, print_status: String::new(), connected: None, bold: false, italic: false, underline: false, font: "Segoe UI".into(), fonts: vec!["Segoe UI".into(), "Arial".into(), "Calibri".into()], fonts_receiver: None, align: "Center".into(), next_status_check: std::time::Instant::now(), file_status: String::new(), observed_key: String::new(), preview_due: None, zoom: 2.0, tray: None, tray_error: None };
+        let mut app = Self { app_update_repository: app_updates::DEFAULT_REPOSITORY.to_owned(), app_update_status: "Check GitHub for the latest app release.".into(), app_update_release: None, app_update_receiver: None, app_update_download: None, app_update_cancel: None, app_update_prepared: None, app_update_progress: None, app_update_install_receiver: None, app_update_restarting: false, app_update_acknowledge: None, app_update_exit_after_download: false, app_update_startup_checked: false, app_update_dismissed_version: None, app_update_startup_message: None, app_update_scroll_requested: false, model_picture: None, export_receiver: None, text: String::new(), width_mm: 9, copies: 1, service_status: "Not checked".into(), status_receiver: None, device_status: None, device_status_time: None, template_path, preview_receiver: None, preview_image: None, highres_design: None, preview_dimensions: None, printable_dimensions: None, printable_origin: None, preview_snapshot: None, preview_objects: None, all_layouts: None, empty_primary_text: None, pending_move: None, preview_paper: Color32::WHITE, design_mode: true, design_image: None, design_image_key: String::new(), design_image_receiver: None, right_click_selection: None, preview_context_target: None, show_rulers: true, metric_units: true, show_about: false, show_preferences: false, show_tips: false, show_layout: false, show_guides: false, fit_requested: false, features: features::Features::default(), layout: layout_tools::LayoutState::default(), guides: guides::Guides::default(), canvas: canvas_layout::CanvasInteraction::default(), known_features: Vec::new(), known_image: false, removed_objects: Vec::new(), object_layouts: Vec::new(), project_path: None, saved_disk_snapshot: None, saved_key: String::new(), pending_document_action: None, data_tools: data_tools::DataTools::default(), prepared_batch: Vec::new(), show_batch: false, batch_selected: 0, batch_preview_receiver: None, batch_preview_key: None, batch_preview_texture: None, batch_status: String::new(), allow_close: false, preview_status: "Generate a preview to see the label.".into(), preview_base_key: None, threshold_image_blank: false, image_path: String::new(), black_and_white: true, threshold: 128, preview_key: None, pending_key: None, print_receiver: None, print_cancel: None, print_status: String::new(), connected: None, bold: false, italic: false, underline: false, font: "Segoe UI".into(), fonts: vec!["Segoe UI".into(), "Arial".into(), "Calibri".into()], fonts_receiver: None, align: "Center".into(), next_status_check: std::time::Instant::now(), file_status: String::new(), observed_key: String::new(), preview_due: None, zoom: 2.0, tray: None, tray_error: None };
         app.saved_key = app.document_key();
         app
     }
@@ -195,20 +199,63 @@ impl LabelApp {
     }
 
     fn start_app_update_check(&mut self) {
+        self.start_app_update_check_with(true, app_updates::check);
+    }
+
+    fn start_startup_update_check(&mut self) {
+        self.start_startup_update_check_with(app_updates::check);
+    }
+
+    fn start_startup_update_check_with(&mut self, check: impl FnOnce(&str) -> Result<app_updates::Release, String> + Send + 'static) {
+        if self.app_update_startup_checked { return; }
+        self.app_update_startup_checked = true;
+        if self.app_update_repository.trim().is_empty() { return; }
+        self.start_app_update_check_with(false, check);
+    }
+
+    fn start_app_update_check_with(&mut self, save_repository: bool, check: impl FnOnce(&str) -> Result<app_updates::Release, String> + Send + 'static) {
         if self.app_update_receiver.is_some() || self.app_update_download.is_some() || self.app_update_restarting { return; }
         let repository = match app_updates::normalise_repository(&self.app_update_repository) {
             Ok(repository) => repository,
             Err(error) => { self.app_update_status = error; return; }
         };
-        if let Err(error) = app_updates::save_repository(&repository) { self.app_update_status = error; return; }
+        if save_repository {
+            if let Err(error) = app_updates::save_repository(&repository) { self.app_update_status = error; return; }
+        }
         self.app_update_repository = repository.clone();
         self.app_update_release = None;
-        self.app_update_prepared = None;
         self.app_update_progress = None;
         self.app_update_status = "Checking the latest stable app release…".into();
         let (send, receive) = std::sync::mpsc::channel();
         self.app_update_receiver = Some(receive);
-        std::thread::spawn(move || { let result = app_updates::check(&repository); let _ = send.send((repository, result)); });
+        std::thread::spawn(move || { let result = check(&repository); let _ = send.send((repository, result)); });
+    }
+
+    fn app_update_notice_version(&self) -> Option<&str> {
+        self.app_update_release.as_ref().filter(|release| release.newer && self.app_update_dismissed_version.as_deref() != Some(release.version.as_str())).map(|release| release.version.as_str())
+    }
+
+    fn view_app_update(&mut self) {
+        self.show_preferences = true;
+        self.app_update_scroll_requested = true;
+        self.app_update_dismissed_version = self.app_update_release.as_ref().map(|release| release.version.clone());
+    }
+
+    fn app_update_notice_ui(&mut self, ctx: &egui::Context) {
+        let Some(version) = self.app_update_notice_version().map(str::to_owned) else { return; };
+        // A foreground notice leaves the editor's geometry unchanged when a
+        // background reply arrives, including while an object is being dragged.
+        egui::Area::new(egui::Id::new("app-update-notice")).anchor(egui::Align2::RIGHT_TOP, egui::vec2(-20.0, 20.0))
+            .order(egui::Order::Foreground).movable(false).show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).inner_margin(10).show(ui, |ui| {
+                    ui.set_max_width(330.0);
+                    ui.strong(format!("Version {version} is available"));
+                    ui.horizontal(|ui| {
+                        if ui.button("View update").clicked() { self.view_app_update(); }
+                        if ui.button("Dismiss").clicked() { self.app_update_dismissed_version = Some(version.clone()); }
+                    });
+                });
+            });
     }
 
     fn app_updates_ui(&mut self, ui: &mut egui::Ui) {
@@ -219,6 +266,7 @@ impl LabelApp {
         if ui.add_enabled(!busy, egui::TextEdit::singleline(&mut self.app_update_repository).hint_text("owner/repository").char_limit(180).desired_width(400.0)).changed() {
             self.app_update_release = None;
             self.app_update_prepared = None;
+            self.app_update_dismissed_version = None;
             self.app_update_status = "Repository changed. Save it or check for an app update.".into();
         }
         ui.horizontal(|ui| {
@@ -232,6 +280,9 @@ impl LabelApp {
             }
         });
         ui.label(&self.app_update_status);
+        if let Some(message) = &self.app_update_startup_message {
+            if message != &self.app_update_status { ui.label(message); }
+        }
         if self.app_update_download.is_some() {
             if let Some((received, total)) = self.app_update_progress.filter(|(_, total)| *total > 0) {
                 ui.add(egui::ProgressBar::new((received as f64 / total as f64).clamp(0.0, 1.0) as f32).text(format!("{:.1} / {:.1} MB", received as f64 / 1_048_576.0, total as f64 / 1_048_576.0)));
@@ -243,8 +294,9 @@ impl LabelApp {
         }
         let mut download = false;
         if let Some(release) = &self.app_update_release {
-            if release.newer && self.app_update_prepared.is_none() {
-                download = ui.add_enabled(!busy && release.package.is_some(), egui::Button::new("Download update")).clicked();
+            if release.newer && self.app_update_prepared.as_ref().is_none_or(|prepared| prepared.version != release.version) {
+                let label = if self.app_update_prepared.is_some() { "Download latest update" } else { "Download update" };
+                download = ui.add_enabled(!busy && release.package.is_some(), egui::Button::new(label)).clicked();
                 if release.package.is_none() { ui.small("Automatic installation requires an official Windows release with verified package and checksum assets."); }
             }
             ui.hyperlink_to("Open release and downloads", &release.url);
@@ -979,6 +1031,7 @@ impl LabelApp {
                     Err(std::sync::mpsc::TryRecvError::Empty) => ui.ctx().request_repaint_after(std::time::Duration::from_millis(250)),
                 }
             }
+            self.app_update_notice_ui(ui.ctx());
             if let Some(receiver) = &self.print_receiver {
                 match receiver.try_recv() {
                     Ok(PrintEvent::Single(Ok(()))) => { self.print_status = "Print job accepted by DYMO.".into(); self.print_receiver = None; }
@@ -1476,6 +1529,7 @@ impl LabelApp {
                     ui.checkbox(&mut self.show_rulers, "Show rulers");
                     ui.horizontal(|ui| { ui.label("Units"); ui.selectable_value(&mut self.metric_units, true, "Metric"); ui.selectable_value(&mut self.metric_units, false, "Inches"); });
                     ui.separator();
+                    if self.app_update_scroll_requested { ui.scroll_to_cursor(Some(egui::Align::Min)); self.app_update_scroll_requested = false; }
                     self.app_updates_ui(ui);
                 });
                 self.show_preferences = settings_open;
@@ -1814,6 +1868,69 @@ mod project_tests {
             assert!(app.app_update_receiver.is_none());
         }
     }
+    fn finish_update_check(app: &mut LabelApp) {
+        app.next_status_check = std::time::Instant::now() + std::time::Duration::from_secs(600);
+        for _ in 0..100 {
+            egui::__run_test_ui(|ui| { ui.set_width(1000.0); app.draw(ui); });
+            if app.app_update_receiver.is_none() { return; }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("synthetic update worker did not finish");
+    }
+    fn synthetic_update(version: &str, newer: bool) -> app_updates::Release {
+        app_updates::Release { version: version.into(), notes: "Synthetic release notes".into(), url: format!("https://github.com/example/label-app/releases/tag/v{version}"), newer, package: None }
+    }
+    #[test]
+    fn startup_checks_once_and_notifies_without_changing_work_or_a_verified_download() {
+        let mut app = LabelApp { app_update_repository: "example/label-app".into(), text: "Keep this label".into(), ..Default::default() };
+        app.app_update_prepared = Some(update_package::Prepared { version: "9.0.0".into(), install: std::path::PathBuf::from("synthetic"), files: Vec::new() });
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)); let count = calls.clone();
+        app.start_startup_update_check_with(move |repository| {
+            assert_eq!(repository, "example/label-app"); count.fetch_add(1, std::sync::atomic::Ordering::Relaxed); Ok(synthetic_update("9.0.0", true))
+        });
+        assert!(app.app_update_receiver.is_some()); finish_update_check(&mut app);
+        assert_eq!(app.app_update_notice_version(), Some("9.0.0")); assert_eq!(app.text, "Keep this label");
+        assert_eq!(app.app_update_prepared.as_ref().unwrap().version, "9.0.0"); assert!(app.app_update_download.is_none()); assert!(!app.app_update_restarting);
+        let count = calls.clone(); app.start_startup_update_check_with(move |_| { count.fetch_add(1, std::sync::atomic::Ordering::Relaxed); Ok(synthetic_update("9.0.0", true)) });
+        assert!(app.app_update_receiver.is_none()); assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+    #[test]
+    fn disabled_or_invalid_startup_update_settings_never_start_a_worker() {
+        for repository in ["", "  ", "invalid repository"] {
+            let mut app = LabelApp { app_update_repository: repository.into(), ..Default::default() };
+            let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)); let count = calls.clone();
+            app.start_startup_update_check_with(move |_| { count.fetch_add(1, std::sync::atomic::Ordering::Relaxed); Err("should not run".into()) });
+            assert!(app.app_update_receiver.is_none()); assert!(app.app_update_startup_checked); assert!(app.app_update_notice_version().is_none()); assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 0);
+        }
+    }
+    #[test]
+    fn up_to_date_and_offline_startup_checks_do_not_raise_update_notices() {
+        for offline in [false, true] {
+            let mut app = LabelApp { app_update_repository: "example/label-app".into(), text: "Keep this label".into(), ..Default::default() };
+            app.start_startup_update_check_with(move |_| if offline { Err("Synthetic offline result".into()) } else { Ok(synthetic_update("0.1.0", false)) });
+            finish_update_check(&mut app); assert!(app.app_update_notice_version().is_none()); assert_eq!(app.text, "Keep this label"); assert!(!app.show_preferences);
+            if offline { assert!(app.app_update_status.contains("offline")); }
+        }
+    }
+    #[test]
+    fn dismissing_an_update_is_per_version_and_does_not_disable_future_launch_notices() {
+        let mut app = LabelApp::default(); app.app_update_release = Some(synthetic_update("9.0.0", true));
+        assert_eq!(app.app_update_notice_version(), Some("9.0.0")); app.app_update_dismissed_version = Some("9.0.0".into()); assert!(app.app_update_notice_version().is_none());
+        app.app_update_release = Some(synthetic_update("9.0.1", true)); assert_eq!(app.app_update_notice_version(), Some("9.0.1"));
+        let mut reopened = LabelApp::default(); reopened.app_update_release = Some(synthetic_update("9.0.0", true)); assert_eq!(reopened.app_update_notice_version(), Some("9.0.0"));
+    }
+    #[test]
+    fn background_update_results_preserve_the_startup_recovery_message() {
+        let mut app = LabelApp { app_update_repository: "example/label-app".into(), app_update_startup_message: Some("Synthetic interrupted update was recovered.".into()), ..Default::default() };
+        app.start_startup_update_check_with(|_| Ok(synthetic_update("9.0.0", true))); finish_update_check(&mut app);
+        assert_eq!(app.app_update_startup_message.as_deref(), Some("Synthetic interrupted update was recovered.")); assert!(app.app_update_status.contains("9.0.0"));
+    }
+    #[test]
+    fn viewing_a_notice_opens_update_details_without_downloading_or_closing() {
+        let mut app = LabelApp::default(); app.app_update_release = Some(synthetic_update("9.0.0", true));
+        app.view_app_update(); assert!(app.show_preferences); assert!(app.app_update_scroll_requested); assert!(app.app_update_notice_version().is_none());
+        assert!(app.app_update_download.is_none()); assert!(!app.app_update_restarting); assert!(!app.allow_close);
+    }
     #[test]
     fn final_exit_guard_preserves_a_print_started_after_the_unsaved_prompt() {
         let mut app = LabelApp::default();
@@ -2150,11 +2267,11 @@ fn main() -> eframe::Result {
             cc.egui_ctx.set_style_of(egui::Theme::Dark, style);
             let mut app = LabelApp::default();
             app.app_update_acknowledge = acknowledge;
-            if let Some(message) = update_message { app.app_update_status = message; }
-            match app_updates::load_repository() {
-                Ok(repository) => app.app_update_repository = repository,
-                Err(error) => app.app_update_status = error,
-            }
+            if let Some(message) = update_message { app.app_update_startup_message = Some(message.clone()); app.app_update_status = message; }
+            let update_preferences_loaded = match app_updates::load_repository() {
+                Ok(repository) => { app.app_update_repository = repository; true }
+                Err(error) => { app.app_update_status = error; false }
+            };
             if app_updates::normalise_repository(&app.app_update_repository).ok().is_some_and(|repo| repo.eq_ignore_ascii_case(app_updates::DEFAULT_REPOSITORY)) {
                 match update_package::install_directory().and_then(|path| update_package::resume(&path)) {
                     Ok(Some(prepared)) => { app.app_update_status = format!("Version {} is already downloaded and verified. Restart when ready.", prepared.version); app.app_update_prepared = Some(prepared); }
@@ -2166,6 +2283,7 @@ fn main() -> eframe::Result {
             let (send, receive) = std::sync::mpsc::channel();
             app.fonts_receiver = Some(receive);
             std::thread::spawn(move || { let _ = send.send(sdk::installed_fonts()); });
+            if update_preferences_loaded { app.start_startup_update_check(); }
             Ok(Box::new(app))
         }),
     )
